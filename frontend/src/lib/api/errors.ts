@@ -7,6 +7,7 @@ export type ApiErrorKind =
   | "invalid"
   | "unavailable"
   | "network"
+  | "gone"
   | "server";
 
 export class ApiError extends Error {
@@ -29,6 +30,7 @@ export function kindForStatus(status: number): ApiErrorKind {
   if (status === 403) return "forbidden";
   if (status === 404) return "not_found";
   if (status === 409) return "conflict";
+  if (status === 410) return "gone";
   if (status === 422) return "invalid";
   if (status === 429 || status === 503) return "unavailable";
   return "server";
@@ -79,6 +81,12 @@ export function adviceFor(err: unknown, action: "send" | "confirm" | "load" | "c
       return { message: err.message || "That message couldn't be accepted. Please shorten or rephrase it.", keepInput: true, reload: false };
     case "unavailable":
       return { message: "The assistant is busy right now. Nothing was changed; please send it again in a moment.", keepInput: true, reload: false };
+    case "gone":
+      return {
+        message: "This prepared purchase expired, so its offer may no longer be valid. GoalPulse will notify you about new verified offers.",
+        keepInput: false,
+        reload: false,
+      };
     case "network":
       return { message: "Couldn't reach GoalPulse. Check your connection and try again.", keepInput: true, reload: false };
     default:

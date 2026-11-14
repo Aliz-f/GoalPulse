@@ -19,6 +19,8 @@ export function AppHeader() {
       <nav className="nav" aria-label="Main">
         <Link href="/">New goal</Link>
         <Link href="/goals">My goals</Link>
+        {/* ICP-02 screens exist only where their API does (mock mode until approved). */}
+        {API_MODE === "mock" && <Link href="/notifications">Notifications</Link>}
       </nav>
       {API_MODE === "mock" ? (
         <span className="badge badge-mock" title="Responses are recorded from the Goal Intelligence service; your text is not interpreted.">

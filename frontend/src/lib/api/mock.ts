@@ -1,5 +1,6 @@
 import type { GoalDraft, GoalSpec, GoalSummary, Lifecycle, LifecycleAction } from "../contracts.ts";
 import { lifecycleAfter } from "../goals.ts";
+import type { ActionPackage, Notification, ProposedApi } from "../proposed.ts";
 import { ApiError } from "./errors.ts";
 import { MOCK_SCRIPTS, type MockScript } from "./mock-scripts.ts";
 import type { GoalPulseApi, MockControls } from "./types.ts";
@@ -63,9 +64,11 @@ export function pickScript(initialMessage: string): MockScript {
   return MOCK_SCRIPTS.find((s) => s.name === name) ?? MOCK_SCRIPTS[0];
 }
 
-export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockControls {
+export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockControls & ProposedApi {
   const sessions = new Map<string, MockSession>();
   const goals = new Map<string, MockGoal>();
+  const notifications = new Map<string, Notification>();
+  const packages = new Map<string, ActionPackage>();
   const delay = opts.delayMs ?? 350;
   const newId = opts.newId ?? (() => crypto.randomUUID());
   const now = opts.now ?? (() => new Date());
@@ -89,14 +92,58 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
   if (opts.seedGoals ?? true) {
     const t = now().getTime();
     const iso = (msAgo: number) => new Date(t - msAgo).toISOString().replace(/\.\d{3}Z$/, "Z");
-    addGoal(specFrom(readyCandidate("product"), newId(), new Date(t - 86_400_000)), {
-      opportunity_status: "verified",
-      last_evaluated_at: iso(25 * 60_000),
-    }, t - 86_400_000);
+    const verified = specFrom(readyCandidate("product"), newId(), new Date(t - 86_400_000));
+    addGoal(verified, { opportunity_status: "verified", last_evaluated_at: iso(25 * 60_000) }, t - 86_400_000);
+    seedVerifiedOffer(verified, 25 * 60_000, 24 * 3_600_000, false);
+    seedVerifiedOffer(verified, 3 * 86_400_000, -2 * 86_400_000, true);
     addGoal(specFrom(readyCandidate("procurement"), newId(), new Date(t - 2 * 86_400_000)), {
       opportunity_status: "unknown",
       last_evaluated_at: iso(3 * 3_600_000),
     }, t - 2 * 86_400_000);
+  }
+
+  // SAMPLE DATA for mock mode: "shop.example" is a reserved, non-existent domain.
+  function seedVerifiedOffer(spec: GoalSpec, createdMsAgo: number, validForMs: number, read: boolean) {
+    const t = now().getTime();
+    const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+    const pkg: ActionPackage = {
+      package_id: newId(),
+      goal_id: spec.goal_id,
+      goal_version: spec.version,
+      evaluation_id: newId(),
+      created_at: iso(t - createdMsAgo),
+      expires_at: iso(t - createdMsAgo + validForMs),
+      approval_required: true,
+      auto_execute: false,
+      next_action: "request_user_approval",
+      requires_checkout_revalidation: true,
+      total_eur_cents: 58980,
+      seller_offers: [
+        {
+          seller_domain: "shop.example",
+          source_url: "https://shop.example/products/rtx-5070-12gb",
+          observation_id: newId(),
+          item_name: "GeForce RTX 5070 12GB (sample)",
+          quantity: "1",
+          unit: "pcs",
+          total_item_eur_cents: 57990,
+          shipping_eur_cents: 990,
+          additional_tax_eur_cents: 0,
+        },
+      ],
+    };
+    packages.set(pkg.package_id, pkg);
+    const n: Notification = {
+      notification_id: newId(),
+      goal_id: spec.goal_id,
+      goal_version: spec.version,
+      title: `Verified offer: ${spec.title}`,
+      summary: "An offer at shop.example met every condition when checked: EUR 589.80 delivered to Finland. Not ordered.",
+      created_at: pkg.created_at,
+      is_read: read,
+      action_package_id: pkg.package_id,
+    };
+    notifications.set(n.notification_id, n);
   }
 
   function findGoal(id: string): MockGoal {
@@ -190,6 +237,29 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
       const next = lifecycleAfter(g.summary.lifecycle, action);
       if (!next) throw new ApiError(409, "conflict", `can't ${action} a ${g.summary.lifecycle} goal`);
       g.summary.lifecycle = next;
+    },
+
+    async listNotifications(limit = 20) {
+      await wait();
+      return [...notifications.values()]
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, Math.max(1, Math.min(limit, 100)))
+        .map((n) => ({ ...n }));
+    },
+
+    async markNotificationRead(notificationId) {
+      await wait();
+      const n = notifications.get(notificationId);
+      if (!n) throw new ApiError(404, "not_found", "notification not found");
+      n.is_read = true; // idempotent
+    },
+
+    async getActionPackage(packageId) {
+      await wait();
+      const pkg = packages.get(packageId);
+      if (!pkg) throw new ApiError(404, "not_found", "package not found");
+      if (new Date(pkg.expires_at).getTime() <= now().getTime()) throw new ApiError(410, "gone", "package expired");
+      return structuredClone(pkg);
     },
 
     suggestedReply(sessionId) {
