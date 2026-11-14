@@ -6,12 +6,20 @@ and Developer 3 (evidence extraction). Frozen v1 contracts remain unchanged.
 ## Current behavior and conflict
 
 The task requires the original GPU fixture to verify and product condition to be
-checked. `goal-spec.product.json` requires condition `new`, arbitrary attribute
+checked. The original `goal-spec.product.json` required condition `new`, arbitrary attribute
 `gpu_model=RTX 5070`, and permits equivalents for a natural-language query.
 Observation.v1 exposes model/brand but no product condition or general attributes.
 Its checked reliability flag alone does not establish omitted facts. Parsing an
 unstructured excerpt or accepting a substring as model identity would invent a
 matching policy and could produce false verification.
+
+The shared example changed in the approved D3 remediation to `condition=any`
+and `match_policy=exact_model`. The historical missing-evidence premise now has
+an explicit D4-owned copy at
+`tests/fixtures/goal-spec.product.requires-new.fixture.json`; its regression keeps
+the same unknown/no-verification assertions regardless of shared-example updates.
+ICP-13 Phase 1 handling is accepted upstream; a richer evidence version remains
+a separate proposal, not permission to infer missing facts.
 
 The implementation therefore returns unknown for absent facts and unsupported
 equivalence. It can verify a separate goal accepting any condition and an exact

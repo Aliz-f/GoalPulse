@@ -73,8 +73,11 @@ capture time. The caller must supply the latest relevant snapshots; selecting
 those and checking goal lifecycle remain D4-GE-02/04 responsibilities.
 
 **Acceptance blocker:** frozen Observation.v1 has no product condition or general
-attributes. The original GPU goal requires `new` and `gpu_model`, so it returns
-unknown. No facts are extracted from free text to bypass that gap. Supported
+attributes. The historical request requiring `new` and `gpu_model` is preserved
+in `tests/fixtures/goal-spec.product.requires-new.fixture.json` and returns
+unknown. The shared product example was subsequently changed upstream to accept
+any condition with exact-model policy; it is not the regression input for this
+missing-evidence case. No facts are extracted from free text to bypass that gap. Supported
 tests use a distinct goal accepting `condition=any`, exact model and supported
 attributes. Different-model equivalence is unknown without an approved policy.
 See [contract gap and approval request](CONTRACT_GAPS.md). D4-GE-03 cannot be

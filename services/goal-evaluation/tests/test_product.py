@@ -57,8 +57,11 @@ def test_supported_happy_path(inputs):
     assert result == evaluate(goal, [observation])
 
 
-def test_frozen_gpu_fixture_contract_gap_is_unknown():
-    result = evaluate(load('goal-spec.product.json'), [load('observation.verified.fixture.json')])
+def test_new_condition_and_unrepresented_attributes_remain_unknown():
+    # Own the regression premise: shared examples can change in coordinated
+    # releases (the current shared goal accepts any condition and exact model).
+    goal = json.loads((SERVICE / 'tests/fixtures/goal-spec.product.requires-new.fixture.json').read_text())
+    result = evaluate(goal, [load('observation.verified.fixture.json')])
     assert result['status'] == 'unknown'
     assert not result['is_opportunity_verified']
     assert condition(result, 'condition')['status'] == 'unknown'
