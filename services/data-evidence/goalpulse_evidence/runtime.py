@@ -1,7 +1,8 @@
 """Production wiring for the owned PostgreSQL API and confirmed outbox worker.
 
-No provider calls or fixture backend exist here. HTTP assertions remain unverified;
-recorded checker proof requires its own approved capture-storage integration.
+No provider calls or fixture backend exist here. Ordinary v1 HTTP assertions stay
+unverified; the additive proof route persists independent DM capture material and
+lets only the deterministic checker append a checked or disputed derivative.
 """
 
 from collections.abc import Callable, Mapping
@@ -10,16 +11,19 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
 import os
+import re
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from .api import create_app
+from .checking import EvidenceChecker
 from .ledger import EvidenceLedger
 from .migrations import apply_migrations
 from .postgres import Connection, PostgresRepository
 from .publishing import OutboxPublisher, RabbitChannelBroker
+from .proofs import EvidenceCheckReads, PostgresProofStore
 from .reads import EvidenceReads
 
 SERVICE = Path(__file__).resolve().parents[1]
@@ -41,6 +45,7 @@ class Settings:
     rabbitmq_url: str | None = field(default=None, repr=False)
     schema_directory: Path = ROOT / "contracts/schemas"
     migrations_directory: Path = SERVICE / "migrations"
+    merchant_hosts: frozenset[str] = frozenset()
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None, *, publisher: bool = False) -> "Settings":
@@ -56,6 +61,17 @@ class Settings:
             raise RuntimeConfigurationError("SERVICE_JWT_SECRET must contain at least 32 bytes")
         if profile != "test" and env.get("DE_EVIDENCE_MODE", "real") != "real":
             raise RuntimeConfigurationError("DE_EVIDENCE_MODE must be real outside tests")
+        merchant_hosts = frozenset(
+            host.strip().lower() for host in env.get("DE_MERCHANT_HOSTS", "").split(",") if host.strip()
+        )
+        if profile == "demo" and not merchant_hosts:
+            raise RuntimeConfigurationError("DE_MERCHANT_HOSTS is required in demo")
+        if any(not re.fullmatch(
+                r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+                r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?", host,
+        ) or host.endswith((".localhost", ".local", ".internal", ".localdomain"))
+               for host in merchant_hosts):
+            raise RuntimeConfigurationError("DE_MERCHANT_HOSTS contains an invalid hostname")
         database_url = env["DATA_EVIDENCE_DATABASE_URL"]
         try:
             from psycopg.conninfo import conninfo_to_dict
@@ -71,7 +87,7 @@ class Settings:
             raise RuntimeConfigurationError("RABBITMQ_URL is required for publisher")
         if rabbitmq_url and not rabbitmq_url.startswith(("amqp://", "amqps://")):
             raise RuntimeConfigurationError("RABBITMQ_URL must use amqp or amqps")
-        return cls(profile, database_url, rabbitmq_url)
+        return cls(profile, database_url, rabbitmq_url, merchant_hosts=merchant_hosts)
 
 
 def connection_factory(settings: Settings, *, connector: Callable[..., Connection] | None = None):
@@ -119,12 +135,17 @@ def build_runtime(settings: Settings | None = None, *,
         repository = PostgresRepository(connect)
         ledger = EvidenceLedger(repository, schema_directory=settings.schema_directory)
         reads = EvidenceReads(connect, schema_directory=settings.schema_directory)
+        proofs = PostgresProofStore(connect)
+        checker = EvidenceChecker(ledger, proofs, merchant_hosts=settings.merchant_hosts,
+                                  profile=settings.profile)
+        check_reads = EvidenceCheckReads(connect)
     except Exception:
         raise RuntimeUnavailable("DATA_EVIDENCE_STARTUP_FAILED") from None
     finally:
         if connection is not None:
             connection.close()
-    app = create_app(ledger, reads, profile=settings.profile)
+    app = create_app(ledger, reads, profile=settings.profile, checker=checker,
+                     proof_store=proofs, check_reads=check_reads)
 
     @app.middleware("http")
     async def redact_operational_failure(request, call_next):
@@ -135,11 +156,11 @@ def build_runtime(settings: Settings | None = None, *,
             return JSONResponse(status_code=503, content={"detail": "evidence service unavailable"})
 
     @app.get("/health/live")
-    def live():
+    async def live():
         return {"status": "live"}
 
     @app.get("/health/ready")
-    def ready():
+    async def ready():
         connection = None
         try:
             connection = connect()

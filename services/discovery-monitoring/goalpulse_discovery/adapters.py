@@ -73,7 +73,8 @@ class ServiceIdentity:
             raise ValueError("Invalid service identity configuration")
 
     def headers(self, scope: str, correlation_id: UUID) -> dict[str, str]:
-        if (scope not in {"gm.runtime.read", "gm.goal-version.read", "de.extractions.write"}
+        if (scope not in {"gm.runtime.read", "gm.goal-version.read", "de.extractions.write",
+                          "de.evidence-proof.write"}
                 or not isinstance(correlation_id, UUID)):
             raise ValueError("Invalid internal request identity")
         now = int(_utc(self.clock()).timestamp())
@@ -113,7 +114,8 @@ class InternalHttp:
 
     def request(self, method: str, path: str, *, scope: str, correlation_id: UUID,
                 json_body: dict | None = None) -> tuple[int, dict]:
-        if (method not in ("GET", "POST") or not path.startswith("/internal/v1/")
+        if (method not in ("GET", "POST")
+                or not path.startswith(("/internal/v1/", "/internal/v2/"))
                 or any(c in path for c in ("?", "#", "\\", "\r", "\n"))):
             raise ValueError("Invalid internal operation")
         try:
@@ -238,8 +240,10 @@ def extraction_submission(source: Source, result: ScrapeResult, *, attempt_id: U
     """Map the documented single-product response to exact ExtractionSubmission.
 
     A product-page offer is a price per product (pcs), never an inferred kg/L unit
-    conversion. Merchant SKU is not an agreed exact-model mapping. Shipping, FI
-    eligibility and tax stay unknown; Markdown is bounded inert audit text only.
+    conversion. Merchant SKU is only a candidate model assertion and cannot be
+    checked unless the separately captured seller JSON-LD has the exact same
+    model. Shipping, FI eligibility and tax stay unknown; Markdown is bounded
+    inert audit text only.
     """
     if not isinstance(attempt_id, UUID) or not isinstance(correlation_id, UUID):
         raise ValueError("Extraction identifiers must be UUIDs")
@@ -280,6 +284,19 @@ def extraction_submission(source: Source, result: ScrapeResult, *, attempt_id: U
         if result.product.data.get("isProductPage") is True:
             value = result.product.data.get("product")
             product = value if isinstance(value, dict) else None
+    model = None
+    sku = _text(product.get("sku")) if product else None
+    if sku and isinstance(result.seller_representation, str):
+        try:
+            represented = json.loads(
+                result.seller_representation, parse_float=Decimal,
+                parse_constant=reject_json_constant, object_pairs_hook=_unique_object,
+            )
+            represented_model = _text(represented.get("model")) if isinstance(represented, dict) else None
+            if represented_model == sku:
+                model = sku
+        except (ValueError, TypeError, UnicodeError, RecursionError):
+            pass
     price = _cents(product.get("price")) if product and product.get("currency") == "EUR" else None
     stock = product.get("availability") if product else None
     excerpt = _text(result.markdown.data, limit=2_000_000) if result.markdown.success else None
@@ -290,7 +307,11 @@ def extraction_submission(source: Source, result: ScrapeResult, *, attempt_id: U
         "extracted": {
             "product_name": _text(product.get("name")) if product else None,
             "brand": _text(product.get("brand")) if product else None,
-            "model": None, "selling_unit": "pcs" if product else None,
+            # Context's SKU is emitted as a candidate model only when the separate
+            # seller JSON-LD names that exact model. DE still independently parses
+            # and checks the representation before it can promote reliability.
+            "model": model,
+            "selling_unit": "pcs" if product else None,
             "unit_price_eur_cents": price,
             "availability": stock if stock in ("in_stock", "out_of_stock") else "unknown",
             "delivery_to_fi": "unknown", "shipping_eur_cents": None, "tax_eur_cents": None,
@@ -338,4 +359,47 @@ class HttpEvidenceSink:
                 raise ValueError
         except (ValueError, TypeError, KeyError):
             raise ProviderError("INVALID_EXTRACTION_RECEIPT") from None
+        return deepcopy(receipt)
+
+    def send_checked_submission(self, body: dict, proof: dict) -> dict:
+        try:
+            correlation = UUID(body["correlation_id"])
+            if (body["provider"] != "context_dev" or body["extraction_method"] != "scrape"
+                    or body["extracted"]["evidence_reliability"] != "unverified"
+                    or not isinstance(proof.get("seller_representation"), str)):
+                raise ValueError
+            json.dumps({"extraction": body, "proof": proof}, allow_nan=False)
+        except (ValueError, TypeError, KeyError):
+            raise ProviderError("INVALID_EVIDENCE_PROOF") from None
+        status, receipt = self.http.request(
+            "POST", "/internal/v2/extractions/with-proof", scope="de.evidence-proof.write",
+            correlation_id=correlation, json_body={"extraction": body, "proof": proof},
+        )
+        try:
+            required = {"accepted", "observation_id", "reason", "reliability",
+                        "checked_observation_id", "check_reasons"}
+            if (status != 200 or set(receipt) != required
+                    or receipt["reliability"] not in ("checked", "unverified", "disputed")
+                    or not isinstance(receipt["check_reasons"], list)):
+                raise ValueError
+            if receipt["accepted"] is True:
+                if receipt["reason"] is not None or not isinstance(receipt["observation_id"], str):
+                    raise ValueError
+                UUID(receipt["observation_id"])
+                if receipt["reliability"] in ("checked", "disputed"):
+                    if not isinstance(receipt["checked_observation_id"], str):
+                        raise ValueError
+                    UUID(receipt["checked_observation_id"])
+                elif receipt["checked_observation_id"] is not None:
+                    raise ValueError
+                if any(not isinstance(reason, str) or not reason
+                       for reason in receipt["check_reasons"]):
+                    raise ValueError
+            elif (receipt["accepted"] is not False or receipt["observation_id"] is not None
+                  or receipt["checked_observation_id"] is not None
+                  or not isinstance(receipt["reason"], str) or not receipt["reason"]
+                  or receipt["reliability"] != "unverified" or receipt["check_reasons"]):
+                raise ValueError
+        except (ValueError, TypeError, KeyError):
+            raise ProviderError("INVALID_EVIDENCE_PROOF_RECEIPT") from None
         return deepcopy(receipt)

@@ -18,6 +18,7 @@ def environment():
         "DATA_EVIDENCE_BASE_URL": "http://data-evidence:8000", "DISCOVERY_SERVICE_ID": str(uuid4()),
         "SERVICE_JWT_SECRET": "runtime-secret-at-least-thirty-two-bytes", "SERVICE_JWT_ISSUER": "tests",
         "SERVICE_JWT_AUDIENCE": "goalpulse-internal", "CONTEXT_DEV_API_KEY": "synthetic-test-key",
+        "CONTEXT_DEV_ACCESS_POLICY_IDS": "pol_recorded_test",
     }
 
 
@@ -33,6 +34,7 @@ def test_runtime_environment_and_repr_do_not_expose_secrets():
 @pytest.mark.parametrize("name", [
     "GOALPULSE_PROFILE", "DISCOVERY_MONITORING_DATABASE_URL", "RABBITMQ_URL", "GOAL_MANAGEMENT_BASE_URL",
     "DATA_EVIDENCE_BASE_URL", "DISCOVERY_SERVICE_ID", "SERVICE_JWT_SECRET", "SERVICE_JWT_ISSUER", "SERVICE_JWT_AUDIENCE",
+    "CONTEXT_DEV_ACCESS_POLICY_IDS",
 ])
 def test_missing_runtime_configuration_fails_without_printing_values(name):
     env = environment()
@@ -51,6 +53,8 @@ def test_missing_runtime_configuration_fails_without_printing_values(name):
     {"GOAL_MANAGEMENT_BASE_URL": "http://goal-management/path"},
     {"DM_MAX_SOURCES_PER_GOAL": "4"}, {"DM_INITIAL_MAX_OPERATIONS_PER_DAY": "101"},
     {"DISCOVERY_SERVICE_ID": "not-a-uuid"},
+    {"CONTEXT_DEV_ACCESS_POLICY_IDS": "not-a-policy"},
+    {"CONTEXT_DEV_ACCESS_POLICY_IDS": "pol_duplicate,pol_duplicate"},
 ])
 def test_unsafe_or_fixture_runtime_configuration_is_rejected(changes):
     env = environment()

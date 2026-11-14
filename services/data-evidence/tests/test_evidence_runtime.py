@@ -32,6 +32,7 @@ def configured(monkeypatch):
         "SERVICE_JWT_ISSUER": "goalpulse-tests",
         "SERVICE_JWT_AUDIENCE": "goalpulse-internal",
         "RABBITMQ_URL": "amqp://de:synthetic-broker-password@localhost/",
+        "DE_MERCHANT_HOSTS": "shop.example",
     }
     for key, value in env.items():
         monkeypatch.setenv(key, value)
@@ -95,7 +96,7 @@ def runtime_for(configured):
 
 
 @pytest.mark.parametrize("key", ["GOALPULSE_PROFILE", "DATA_EVIDENCE_DATABASE_URL", "SERVICE_JWT_SECRET",
-                                  "SERVICE_JWT_ISSUER", "SERVICE_JWT_AUDIENCE"])
+                                  "SERVICE_JWT_ISSUER", "SERVICE_JWT_AUDIENCE", "DE_MERCHANT_HOSTS"])
 def test_runtime_fails_closed_on_missing_configuration(configured, key):
     del configured[key]
     with pytest.raises(RuntimeConfigurationError, match=key):
@@ -107,6 +108,8 @@ def test_runtime_fails_closed_on_missing_configuration(configured, key):
     ("DE_EVIDENCE_MODE", "fixture"), ("DATA_EVIDENCE_DATABASE_URL", "not a valid DSN"),
     ("DATA_EVIDENCE_DATABASE_URL", "postgresql://localhost/goal_management"),
     ("RABBITMQ_URL", "http://localhost"),
+    ("DE_MERCHANT_HOSTS", "127.0.0.1"),
+    ("DE_MERCHANT_HOSTS", "shop.example/path"),
 ])
 def test_invalid_or_unsafe_runtime_configuration_is_redacted(configured, key, value):
     configured[key] = value

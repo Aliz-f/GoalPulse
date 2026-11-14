@@ -43,10 +43,11 @@ class SubmissionStore:
 
     def get(self, attempt_id: UUID) -> dict | None:
         with self.database.transaction() as cursor:
-            cursor.execute("SELECT submission,receipt FROM extraction_deliveries WHERE attempt_id=%s",
+            cursor.execute("SELECT submission,receipt,capture_metadata FROM extraction_deliveries WHERE attempt_id=%s",
                            (str(attempt_id),))
             row = cursor.fetchone()
-            return {"submission": deepcopy(row[0]), "receipt": deepcopy(row[1])} if row else None
+            return {"submission": deepcopy(row[0]), "receipt": deepcopy(row[1]),
+                    "capture_metadata": deepcopy(row[2])} if row else None
 
     def put(self, submission: dict, *, capture_metadata: dict | None = None) -> dict:
         body = _encoded(submission)
@@ -57,12 +58,15 @@ class SubmissionStore:
                               VALUES (%s,%s,%s::jsonb,%s,%s::jsonb) ON CONFLICT DO NOTHING""",
                            (submission["attempt_id"], submission["source_id"], body, fingerprint,
                             _encoded(capture_metadata or {})))
-            cursor.execute("SELECT submission,receipt,submission_hash FROM extraction_deliveries WHERE attempt_id=%s",
+            cursor.execute("SELECT submission,receipt,submission_hash,capture_metadata FROM extraction_deliveries WHERE attempt_id=%s",
                            (submission["attempt_id"],))
             row = cursor.fetchone()
             if row[2] != fingerprint:
                 raise ValueError("Attempt identity reused for different extraction")
-            return {"submission": deepcopy(row[0]), "receipt": deepcopy(row[1])}
+            if row[3] != (capture_metadata or {}):
+                raise ValueError("Attempt identity reused for different capture proof")
+            return {"submission": deepcopy(row[0]), "receipt": deepcopy(row[1]),
+                    "capture_metadata": deepcopy(row[3])}
 
     def complete(self, attempt_id: UUID, receipt: dict) -> None:
         with self.database.transaction() as cursor:
@@ -78,7 +82,9 @@ class JournaledEvidenceSink:
         if record["receipt"] is not None:
             return record["receipt"]
         body = record["submission"]
-        receipt = self.client.send_submission(body)
+        proof = record.get("capture_metadata", {}).get("seller_proof")
+        receipt = (self.client.send_checked_submission(body, proof)
+                   if isinstance(proof, dict) else self.client.send_submission(body))
         self.store.complete(UUID(body["attempt_id"]), receipt)
         return receipt
 
@@ -96,4 +102,12 @@ class JournaledEvidenceSink:
                     "provider_observed_at": time_value(getattr(result, "provider_observed_at", None)),
                     "observed_at": time_value(result.observed_at), "cache_age_ms": result.cache_age_ms,
                     "provider_request_id": result.request_id, "source_url": result.source_url}
+        if (getattr(result, "seller_representation", None) is not None
+                and getattr(result, "resolved_addresses", ())
+                and getattr(result, "access_policy_ids", ())):
+            metadata["seller_proof"] = {
+                "seller_representation": result.seller_representation,
+                "resolved_addresses": list(result.resolved_addresses),
+                "access_policy_ids": list(result.access_policy_ids),
+            }
         return self._deliver(self.store.put(body, capture_metadata=metadata))

@@ -51,7 +51,11 @@ class CursorFixture:
             self.database.events.append("stage")
         elif sql.startswith("SELECT submission,receipt,submission_hash"):
             item = self.state["deliveries"].get(params[0])
-            self.row = (item["submission"], item["receipt"], item["submission_hash"]) if item else None
+            self.row = (item["submission"], item["receipt"], item["submission_hash"],
+                        item["capture_metadata"]) if item else None
+        elif sql.startswith("SELECT submission,receipt,capture_metadata"):
+            item = self.state["deliveries"].get(params[0])
+            self.row = (item["submission"], item["receipt"], item["capture_metadata"]) if item else None
         elif sql.startswith("SELECT submission,receipt"):
             item = self.state["deliveries"].get(params[0])
             self.row = (item["submission"], item["receipt"]) if item else None
@@ -206,7 +210,8 @@ def test_private_capture_provenance_survives_same_submission_replay_unchanged():
                         "provider_observed_at": "2026-11-14T11:59:00Z", "cache_age_ms": 60000,
                         "provider_request_id": "recorded-request"}
     store.put(body, capture_metadata=original_capture)
-    store.put(body, capture_metadata={**original_capture, "requested_at": "2026-11-14T13:00:00Z"})
+    with pytest.raises(ValueError, match="different capture proof"):
+        store.put(body, capture_metadata={**original_capture, "requested_at": "2026-11-14T13:00:00Z"})
     assert database.state["deliveries"][body["attempt_id"]]["capture_metadata"] == original_capture
 
 

@@ -34,6 +34,7 @@ The product owner delegated the Phase 2 MVP policy choices recorded by ADR-0003.
 | 2026-11-14 | MVP-18 / ICP-07 | Interactive edit/version endpoint is deferred; pause and new-goal creation are supported and GoalSpec versions remain immutable. | Product owner; D1 integration | Deferred; PR pending |
 | 2026-11-14 | MVP-19 | Demo is local/isolated, service and database ports remain private, secrets stay server-side, outbound URLs are screened, and public deployment needs a separate security review. | Product owner; D1 integration | R2-D1-01/R2-D1-03; PR pending |
 | 2026-11-14 | MVP-20 | P0 release requires the full truthful live path and honest Unknown; recorded fixtures separately prove Verified/Notification and must be labeled. | Product owner; D1 integration | R2-D1-03; PR pending |
+| 2026-11-14 | ICP-14 | Accepted additive internal evidence-proof v1 transport under ADR-0004. Frozen Observation/event/internal v1 contracts remain unchanged; D4 consumption is deferred. | Product owner; D1/D3 integration | PR #11 remediation |
 
 ### ICP resolution summary for Phase 2
 

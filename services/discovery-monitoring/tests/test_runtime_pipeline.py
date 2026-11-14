@@ -117,7 +117,7 @@ class PipelineScenario:
             rabbitmq_url="amqp://recorded-test-only", goal_management_url="http://gm",
             data_evidence_url="http://de", service_subject=uuid4(), service_secret=SECRET,
             service_issuer=ISSUER, service_audience=AUDIENCE, context_api_key="recorded_test_key",
-            schema_directory=SCHEMAS,
+            context_access_policy_ids=("pol_recorded_test",), schema_directory=SCHEMAS,
         )
         self.event = json.loads((ROOT / "contracts/examples/event.goal-activated.json").read_text())
         self.runtime = self.rebuild()
@@ -163,7 +163,7 @@ def test_main_activation_path_persists_real_http_observation_and_outbox_once(mon
     assert observation["evidence"]["reliability"] == "unverified"
     assert observation["source_url"] == URL
     assert observation["provider_request_id"] == "recorded-scrape-1"
-    assert observation["model"] is None  # A merchant SKU is not a confirmed exact model.
+    assert observation["model"] is None  # Uncorroborated merchant SKU stays unknown.
     assert observation["delivery_to_fi"] == "unknown"
     assert observation["shipping_eur_cents"] is observation["tax_eur_cents"] is None
     assert len(scenario.services.submissions) == len(scenario.repository.state["outbox"]) == 1

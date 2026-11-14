@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from ipaddress import ip_address
 import json
 import math
+import re
 from typing import Protocol
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4, uuid5
@@ -28,9 +29,10 @@ MAX_AGE = timedelta(minutes=30)
 class SellerRepresentation:
     """A recorded seller fragment and the original transport/capture provenance.
 
-    resolved_addresses are the actual vetted public addresses from capture, not a
-    new DNS lookup. A redirect to another URL requires a new observation/capture;
-    this checker never grants trust across an unrecorded redirect.
+    resolved_addresses are DM's capture-time public-address preflight, not a later
+    checker lookup or a claim about the provider's resolver. Provider-side access
+    policy IDs are required outside tests. A redirect to another URL requires a
+    new observation/capture; this checker never trusts an unrecorded redirect.
     """
 
     source_url: str
@@ -39,6 +41,7 @@ class SellerRepresentation:
     provider_request_id: str | None
     json_ld: str
     resolved_addresses: tuple[str, ...]
+    access_policy_ids: tuple[str, ...] = ()
 
 
 class RepresentationReader(Protocol):
@@ -245,6 +248,13 @@ class EvidenceChecker:
                 return "unverified", ["NON_PUBLIC_CAPTURE_ADDRESS"], {}, None
         except ValueError:
             return "unverified", ["NON_PUBLIC_CAPTURE_ADDRESS"], {}, None
+        if self.profile != "test" and (
+                not isinstance(representation.access_policy_ids, tuple)
+                or not representation.access_policy_ids
+                or any(not isinstance(policy, str)
+                       or not re.fullmatch(r"pol_[A-Za-z0-9_-]{1,196}", policy)
+                       for policy in representation.access_policy_ids)):
+            return "unverified", ["PROVIDER_ACCESS_POLICY_MISSING"], {}, None
         try:
             claims = _seller_claims(representation.json_ld, capture.source_url, self.merchant_hosts)
         except ProofError as exc:
@@ -253,6 +263,7 @@ class EvidenceChecker:
                  "observed_at": timestamp(observed), "cache_age_ms": capture.cache_age_ms,
                  "provider_request_id": capture.provider_request_id,
                  "resolved_addresses": list(representation.resolved_addresses),
+                 "access_policy_ids": list(representation.access_policy_ids),
                  "representation": json.loads(representation.json_ld), "claims": claims}
         # Excludes receipt/observation IDs and claimed fresh timestamps. Replaying
         # the same recorded response cannot create a second checked observation.

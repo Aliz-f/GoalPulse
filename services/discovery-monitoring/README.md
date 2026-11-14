@@ -29,9 +29,10 @@ the [official quickstart](https://docs.context.dev/quickstart),
 [Monitors](https://docs.context.dev/monitors/overview) documentation.
 
 - API requests use TLS to fixed `api.context.dev`; API redirects are rejected.
-- Initial target DNS must resolve entirely to public addresses. Unsafe returned
-  URLs are rejected. Provider-side DNS/redirect egress enforcement still needs
-  validation before DM-02's complete SSRF acceptance can be claimed.
+- Initial and returned target DNS must resolve entirely to public addresses.
+  Demo startup additionally requires a provisioned Context.dev allowlist access
+  policy, and its ID is sent on Search, Scrape and Monitor requests. Deployment
+  must still validate the provider-side policy content; an opaque ID is not proof.
 - Retries are bounded (three attempts by default), with exponential backoff and
   `Retry-After` support. Long delays are returned to the future scheduler instead
   of retrying earlier than the provider allows. Permanent 4xx errors are not retried.
@@ -62,6 +63,9 @@ template for fresh checkouts. An existing process environment variable takes
 precedence (including an explicitly empty value). The loader reads only this key;
 it does not execute shell commands or expand variable references. Keep comments
 on separate lines. No third-party configuration dependency is required.
+`CONTEXT_DEV_ACCESS_POLICY_IDS` is a runtime variable injected/exported by D1;
+the standalone probe does not read it from the service-local file or claim the
+demo provider-side SSRF acceptance.
 
 The opt-in probe spends provider credits on an example.com smoke request and one product scrape;
 it creates no monitors. Its JSON output contains coverage flags and cache age,
@@ -152,6 +156,7 @@ configuration. Only `CONTEXT_DEV_API_KEY` also reads the ignored service-local
 | `DISCOVERY_SERVICE_ID` | Provisioned UUID machine subject. |
 | `SERVICE_JWT_SECRET`, `SERVICE_JWT_ISSUER`, `SERVICE_JWT_AUDIENCE` | Existing accepted ICP-08 credentials; signing secret at least 32 bytes, no repository placeholder. |
 | `CONTEXT_DEV_API_KEY` | Real provider key, server-side only; existing local key loader remains supported. |
+| `CONTEXT_DEV_ACCESS_POLICY_IDS` | Comma-separated IDs for D1-provisioned Context.dev allowlist policies; required in demo. |
 | `DM_MAX_SOURCES_PER_GOAL` | Initial source cap, default 3, maximum 3. |
 | `DM_INITIAL_MAX_OPERATIONS_PER_DAY` | Initial service-wide direct-call cap, default/max 100; every Context HTTP attempt consumes a reservation. |
 | `GOALPULSE_SCHEMA_DIRECTORY` | Optional installed location of the unchanged shared JSON Schemas. |
@@ -192,14 +197,17 @@ Stable attempt IDs survive worker restarts. The intent commits before HTTP; afte
 an ambiguous response or receipt-commit failure, the next worker reuses that
 payload instead of scraping again or fabricating a new timestamp. Completed
 receipts are reused. Missing price/non-product/failed extraction results reach
-DE as durable 202 failures. Missing shipping/tax/FI eligibility/stock stays unknown;
-merchant SKU is not treated as a proven exact model.
+DE as durable failures. Missing shipping/tax/FI eligibility/stock stays unknown.
+A merchant SKU is emitted as an unverified model candidate only when separately
+captured first-party JSON-LD has an exact matching model, and can become checked
+only after DE independently validates that proof.
 
 Initial and persisted source URLs are checked against public DNS and seller-domain
 constraints. Returned private targets/cross-host redirects are rejected; accepted
 same-host final URLs get their own canonical source identity. The remote provider
-resolves independently: its own DNS/redirect egress enforcement still needs live
-validation and must not be inferred from these local checks.
+resolves independently, so demo also fails closed without configured Context.dev
+allowlist access-policy IDs. Live deployment must verify those policies cover
+redirects; local DNS and an opaque policy ID are not sufficient.
 
 For a controlled real activation already queued by GM, use `consume --once` then
 `worker --once`, with the real DE API/outbox publisher running. `--once` neither

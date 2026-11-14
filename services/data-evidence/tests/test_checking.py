@@ -85,6 +85,7 @@ class Scenario:
             source_url=self.capture.source_url, fetched_at=self.capture.fetched_at,
             cache_age_ms=self.capture.cache_age_ms, provider_request_id=self.capture.provider_request_id,
             json_ld=json.dumps(self.product), resolved_addresses=("93.184.216.34",),
+            access_policy_ids=("pol_recorded_test",),
         )
 
     def checker(self, *, profile="dev", merchant_hosts=frozenset({"shop.example"})):
@@ -162,6 +163,17 @@ def test_single_assertion_and_caller_checked_cannot_bypass_checker():
     result = scenario.ledger.record(forged, scenario.capture, correlation_id=uuid4())
     assert not result.accepted and result.reason == "CALLER_CHECKED"
     assert len(scenario.repository.state["outbox"]) == 1
+
+
+def test_demo_check_requires_recorded_provider_access_policy():
+    scenario = Scenario()
+    scenario.reader.representation = replace(scenario.reader.representation, access_policy_ids=())
+    audit = scenario.checker(profile="demo").check(
+        UUID(scenario.stored.observation_id), check_id=uuid4(),
+        correlation_id=scenario.correlation_id,
+    )
+    assert_no_promotion(scenario, audit)
+    assert audit["reasons"] == ["PROVIDER_ACCESS_POLICY_MISSING"]
 
 
 def test_checked_core_does_not_certify_uncorroborated_shipping_or_tax_assertions():

@@ -184,7 +184,7 @@ def test_internal_service_origin_is_explicit_and_not_user_url(base_url):
         client(lambda _: httpx.Response(200, json={}), base_url=base_url)
 
 
-def test_documented_product_maps_exact_contract_with_unknown_checkout_facts_and_no_sku_model_guess():
+def test_documented_product_keeps_uncorroborated_sku_out_of_model():
     body = submission()
     contract = yaml.safe_load((ROOT / "contracts/openapi/internal.proposed.v1.yaml").read_text(encoding="utf-8"))
     Draft202012Validator(contract["components"]["schemas"]["ExtractionSubmission"],
@@ -197,6 +197,14 @@ def test_documented_product_maps_exact_contract_with_unknown_checkout_facts_and_
     assert facts["delivery_to_fi"] == "unknown" and facts["shipping_eur_cents"] is None
     assert facts["tax_eur_cents"] is None and body["provider"] == "context_dev"
     assert body["provider_request_id"] == "recorded-request" and body["correlation_id"] == str(CORRELATION)
+
+
+def test_exact_jsonld_model_allows_sku_candidate_but_not_checked_reliability():
+    proof = json.dumps({"@context": "https://schema.org", "@type": "Product", "url": URL,
+                        "name": "Synthetic recorded widget", "model": "STORE-ONLY-SKU"})
+    facts = submission(result(seller_representation=proof))["extracted"]
+    assert facts["model"] == "STORE-ONLY-SKU"
+    assert facts["evidence_reliability"] == "unverified"
 
 
 @pytest.mark.parametrize("price,currency", [(None, "EUR"), ("12.34", "USD"), (12.34, "EUR"),
@@ -306,3 +314,38 @@ def test_sink_rejects_fixture_provenance_and_forged_checked_before_http():
     with pytest.raises(ProviderError, match="INVALID_EXTRACTION_SUBMISSION"):
         sink.send_submission(body)
     assert not calls
+
+
+@pytest.mark.parametrize("receipt", [
+    {"accepted": True, "observation_id": str(uuid4()), "reason": None,
+     "reliability": "checked", "checked_observation_id": str(uuid4()),
+     "check_reasons": ["SELLER_REPRESENTATION_CORROBORATED"]},
+    {"accepted": False, "observation_id": None, "reason": "MISSING_UNIT_PRICE",
+     "reliability": "unverified", "checked_observation_id": None, "check_reasons": []},
+])
+def test_checked_sink_uses_v2_scope_and_accepts_durable_failure_receipt(receipt):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        assert request.url.path == "/internal/v2/extractions/with-proof"
+        assert decoded_token(request)["scope"] == "de.evidence-proof.write"
+        return httpx.Response(200, json=receipt)
+
+    sink = HttpEvidenceSink(client(handler, base_url="http://data-evidence:8004"))
+    proof = {"seller_representation": "{}", "resolved_addresses": ["93.184.216.34"],
+             "access_policy_ids": ["pol_demo_allowlist"]}
+    assert sink.send_checked_submission(submission(), proof) == receipt
+    assert len(calls) == 1
+
+
+def test_checked_sink_rejects_checked_receipt_without_derived_observation():
+    receipt = {"accepted": True, "observation_id": str(uuid4()), "reason": None,
+               "reliability": "checked", "checked_observation_id": None,
+               "check_reasons": ["SELLER_REPRESENTATION_CORROBORATED"]}
+    sink = HttpEvidenceSink(client(lambda _: httpx.Response(200, json=receipt)))
+    with pytest.raises(ProviderError, match="INVALID_EVIDENCE_PROOF_RECEIPT"):
+        sink.send_checked_submission(submission(), {
+            "seller_representation": "{}", "resolved_addresses": ["93.184.216.34"],
+            "access_policy_ids": ["pol_demo_allowlist"],
+        })

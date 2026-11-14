@@ -11,6 +11,7 @@ from hashlib import sha256
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import re
 from typing import Mapping
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -51,6 +52,7 @@ class RuntimeSettings:
     service_issuer: str
     service_audience: str
     context_api_key: str = field(repr=False)
+    context_access_policy_ids: tuple[str, ...] = ()
     schema_directory: Path = SCHEMAS
     max_sources: int = 3
     max_operations: int = 100
@@ -66,6 +68,13 @@ class RuntimeSettings:
                 or not self.service_audience or not self.context_api_key
                 or any(c.isspace() for c in self.context_api_key)):
             raise ConfigurationError("Valid service identity and Context.dev configuration are required")
+        if (not isinstance(self.context_access_policy_ids, tuple)
+                or (self.profile == "demo" and not self.context_access_policy_ids)
+                or len(self.context_access_policy_ids) > 16
+                or len(set(self.context_access_policy_ids)) != len(self.context_access_policy_ids)
+                or any(not re.fullmatch(r"pol_[A-Za-z0-9_-]{1,196}", value)
+                       for value in self.context_access_policy_ids)):
+            raise ConfigurationError("Context.dev access policy configuration is invalid")
         if (type(self.max_sources) is not int or not 1 <= self.max_sources <= 3
                 or type(self.max_operations) is not int or not 1 <= self.max_operations <= 100):
             raise ConfigurationError("Initial pipeline budgets exceed supported bounds")
@@ -107,6 +116,8 @@ class RuntimeSettings:
             return cls(env["GOALPULSE_PROFILE"], env["DISCOVERY_MONITORING_DATABASE_URL"], env["RABBITMQ_URL"],
                        env["GOAL_MANAGEMENT_BASE_URL"], env["DATA_EVIDENCE_BASE_URL"], UUID(env["DISCOVERY_SERVICE_ID"]),
                        env["SERVICE_JWT_SECRET"], env["SERVICE_JWT_ISSUER"], env["SERVICE_JWT_AUDIENCE"], key,
+                       tuple(part.strip() for part in env.get("CONTEXT_DEV_ACCESS_POLICY_IDS", "").split(",")
+                             if part.strip()),
                        Path(env.get("GOALPULSE_SCHEMA_DIRECTORY", str(SCHEMAS))),
                        int(env.get("DM_MAX_SOURCES_PER_GOAL", "3")),
                        int(env.get("DM_INITIAL_MAX_OPERATIONS_PER_DAY", "100")),
@@ -178,7 +189,8 @@ class PipelineRuntime:
         # One HTTP attempt per reservation: retries belong to the durable job,
         # keeping the operation budget honest even on network/429/5xx failures.
         context = ContextProvider(settings.context_api_key, transport=provider_transport,
-                                  resolver=resolver, max_attempts=1, timeout_seconds=20, clock=self.clock)
+                                  resolver=resolver, max_attempts=1, timeout_seconds=20, clock=self.clock,
+                                  access_policy_ids=settings.context_access_policy_ids)
         self.provider = GuardedProvider(context, self.usage, clock=self.clock)
         self.consumer = ActivationConsumer(ActivationInbox(self.jobs, schema_directory=settings.schema_directory))
         self.worker = PipelineWorker(self)

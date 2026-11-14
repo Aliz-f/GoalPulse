@@ -50,7 +50,8 @@ authoritative JSON schemas supplied through an explicit
 ## PostgreSQL migration and connection ownership
 
 `migrations/0001_evidence_ledger.sql` creates service-owned tables and indexes;
-`0002_evidence_checks.sql` adds immutable checker decisions and proof replay guards.
+`0002_evidence_checks.sql` adds immutable checker decisions and proof replay guards;
+`0003_capture_proofs.sql` adds immutable attempt-keyed seller representations.
 `goalpulse_evidence.migrations.apply_migrations(connection, directory)` applies
 forward migrations atomically under an advisory lock, checksums applied versions,
 and refuses changed migration history. No database creation/drop is performed.
@@ -126,11 +127,11 @@ cannot verify a `condition=new` opportunity.
 ## R2-D3-02 internal checked policy
 
 `checking.EvidenceChecker.check(observation_id, check_id=..., correlation_id=...)`
-reads an existing observation and its original capture from the owned ledger. It
-has no HTTP route. The injected `RepresentationReader.load(UUID)` reads a recorded
-seller JSON-LD fragment through a separate trusted capture-storage path; HTTP
-extracted fields and excerpts cannot supply this proof. The explicit server-owned
-`merchant_hosts` registry defaults to no implicit merchant trust.
+reads an existing observation and its original capture from the owned ledger. The
+additive ADR-0004 `POST /internal/v2/extractions/with-proof` route accepts a DM-only
+persisted extraction plus a separate bounded seller representation, records the
+input as unverified, and invokes this checker. Extracted fields and excerpts cannot
+supply proof. The server-owned `merchant_hosts` registry defaults to no implicit trust.
 
 The `icp09-v1` policy supports a single first-party HTTPS Product/Offer sold per
 `pcs`, with exact product name/model, integer EUR cents, explicit stock and product
@@ -157,12 +158,11 @@ link. Product condition stays in the internal audit because v1 has no condition
 field. GE therefore retains its existing hard unknown gates; checked does not mean
 checkout availability, a completed goal, or purchase approval.
 
-Apply migration 0002 before using checker/source reads. R2-D3-01 must wire a real
-recorded-representation adapter and invoke the checker from the private pipeline;
-without that proof, observations remain unverified. The adapter must preserve
-original provider times/request IDs and verify capture URL/DNS/redirect provenance;
-it must never reconstruct proof from the submitted normalized assertion. This
-task adds no public/internal HTTP API, dependency declaration or environment variable.
+Apply migrations 0002 and 0003 before using checker/source reads. Discovery now
+captures Context.dev page-metadata JSON-LD separately, preserves provider times,
+request IDs, public-address preflight and access-policy IDs, and invokes the private
+proof route. Proof is never reconstructed from the normalized assertion. Without
+exact first-party proof, observations remain unverified.
 
 See [R2-D3-02 evidence and handoff](reports/R2-D3-02-CHECKED-POLICY.md) for checks,
 integration limits and redacted recorded smoke evidence.
@@ -175,7 +175,9 @@ applies all owned migrations before serving. `GOALPULSE_PROFILE` must be
 `test`, `dev` or `demo`; `DATA_EVIDENCE_DATABASE_URL` must name `data_evidence`
 (tests may use `data_evidence_test`). Configure the existing `SERVICE_JWT_SECRET`,
 `SERVICE_JWT_ISSUER` and `SERVICE_JWT_AUDIENCE`; the signing secret must contain at
-least 32 bytes. The publisher also requires the existing `RABBITMQ_URL`.
+least 32 bytes. Demo also requires `DE_MERCHANT_HOSTS`, a comma-separated
+server-owned allowlist of seller hosts eligible for first-party proof. The publisher
+also requires the existing `RABBITMQ_URL`.
 
 From `services/data-evidence/`, run separate private processes:
 
@@ -192,9 +194,10 @@ bounded broker connection/retry settings. `publisher --once` processes one due r
 
 Dev/demo reject fixture submissions and fixture reads. `DE_EVIDENCE_MODE`, if
 configured outside tests, must be `real`. There is no fixture fallback and no
-external provider access in DE. The accepted ExtractionSubmission cannot carry
-independent seller-representation proof, so runtime HTTP observations remain
-unverified; no ad hoc JSON-LD/condition fields or checked claims were added.
+external provider access in DE. The accepted v1 ExtractionSubmission remains
+unchanged; independent proof uses the additive ADR-0004 route, and only DE's
+checker may append checked/disputed snapshots. Condition stays out of Observation.v1,
+and the D4 evaluator integration remains deferred.
 
 See the [R2-D3-01 pipeline report](../discovery-monitoring/reports/R2-D3-01-PRODUCTION-PIPELINE.md)
 for tested integration behavior and the remaining actual-stack acceptance check.
