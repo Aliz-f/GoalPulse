@@ -17,7 +17,7 @@ Own goal identity and lifecycle only. Do **not** run LLM, search web, scrape, ca
 
 Exact public schema: `contracts/openapi/gateway.v1.yaml`. No public criteria edit or status/history endpoint exists there; those are **proposals** (ICP-02/07).
 
-## Internal API (proposed, needs ICP-01 approval)
+## Internal API (accepted under ICP-01; historical filename retained)
 
 - `GET /internal/v1/goals/{goal_id}/versions/{version}` → exact GoalSpec; protected service credentials; returns 404 on unknown. Used by DM/GE.
 - `GET /internal/v1/goals/{goal_id}/runtime` → `{goal_id,current_version,lifecycle,owner_user_id}`. Used by GE/NS/AI as authoritative final gate. Do not expose owner ID to arbitrary callers.
