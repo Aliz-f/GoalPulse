@@ -26,6 +26,7 @@ def event_schema():
 
 def test_two_supported_goal_types(goal_schema):
     assert valid(goal_schema, data('contracts/examples/goal-spec.product.json'))
+    assert valid(goal_schema, data('contracts/examples/goal-spec.product-new.json'))
     assert valid(goal_schema, data('contracts/examples/goal-spec.procurement.json'))
 
 
@@ -75,3 +76,31 @@ def test_verified_requires_all_conditions_satisfied(ev_schema):
     obj = data('contracts/examples/goal-evaluation.satisfied.fixture.json')
     obj['conditions'][1]['status'] = 'unknown'
     assert not valid(ev_schema, obj)
+
+
+def test_new_condition_without_structured_evidence_is_unknown(goal_schema, ev_schema):
+    goal = data('contracts/examples/goal-spec.product-new.json')
+    observation = data('contracts/examples/observation.verified.fixture.json')
+    evaluation = data('contracts/examples/goal-evaluation.condition-unknown.fixture.json')
+    assert valid(goal_schema, goal) and valid(ev_schema, evaluation)
+    assert goal['criteria']['product']['condition'] == 'new'
+    assert 'condition' not in observation
+    condition = next(item for item in evaluation['conditions'] if item['code'] == 'product_condition')
+    assert condition['status'] == 'unknown'
+    assert evaluation['status'] == 'unknown'
+    assert evaluation['is_opportunity_verified'] is False
+
+
+def test_satisfied_exact_model_fixture_uses_explicit_mapping(goal_schema, ev_schema):
+    goal = data('contracts/examples/goal-spec.product.json')
+    observation = data('contracts/examples/observation.verified.fixture.json')
+    evaluation = data('contracts/examples/goal-evaluation.satisfied.fixture.json')
+    assert valid(goal_schema, goal) and valid(ev_schema, evaluation)
+    assert goal['criteria']['product'] == {
+        'query': 'NVIDIA GeForce RTX 5070',
+        'match_policy': 'exact_model',
+        'condition': 'any',
+    }
+    assert observation['model'] == 'RTX 5070'
+    assert any(item['code'] == 'exact_model_match' and item['status'] == 'satisfied'
+               for item in evaluation['conditions'])
