@@ -81,3 +81,28 @@ def test_correlation_id_is_propagated_or_minted(client):
     invalid = client.get("/healthz", headers={"X-Correlation-ID": "not-a-uuid"})
     assert invalid.status_code == 400
     assert invalid.json() == {"code": "invalid_correlation_id", "message": "X-Correlation-ID must be a UUID"}
+
+
+def test_demo_app_refuses_fixture_at_startup(monkeypatch):
+    from goal_intelligence.config import ConfigError
+
+    monkeypatch.setenv("GOALPULSE_PROFILE", "demo")
+    monkeypatch.setenv("GI_LLM_PROVIDER", "fixture")
+    monkeypatch.setenv("GI_DATABASE_URL", "sqlite:///never-created.db")
+    with pytest.raises(ConfigError, match="fixture extractor is refused"):
+        create_app(authenticator=authenticator())
+
+
+def test_healthz_discloses_provider_without_secrets(monkeypatch, tmp_path):
+    key = "sk-ant-test-0123456789-never-print-me"
+    monkeypatch.setenv("GOALPULSE_PROFILE", "demo")
+    monkeypatch.setenv("GI_LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("GI_LLM_MODEL", "test-model")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", key)
+    monkeypatch.setenv("GI_DATABASE_URL", f"sqlite:///{tmp_path / 'gi.db'}")
+    body = TestClient(create_app(authenticator=authenticator())).get("/healthz").json()
+    assert body == {
+        "status": "ok", "profile": "demo", "llm_provider": "anthropic", "llm_model": "test-model",
+        "goal_text_sent_to": "Anthropic (Messages API)",
+    }
+    assert key not in str(body)

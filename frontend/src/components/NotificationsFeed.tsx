@@ -1,26 +1,30 @@
 "use client";
 
-import { Package } from "lucide-react";
+import { BadgeCheck, Package } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { Icon, Notice } from "@/components/Icons";
-import { Icp02Pending } from "@/components/Icp02Pending";
-import { adviceFor } from "@/lib/api/errors";
-import { getProposedApi } from "@/lib/api/proposed";
-import { formatTimestamp } from "@/lib/format";
-import type { Notification } from "@/lib/proposed";
+import { getApi } from "@/lib/api";
+import { ApiError, adviceFor } from "@/lib/api/errors";
+import { hasMockControls } from "@/lib/api/types";
+import type { Notification } from "@/lib/extension";
+import { formatTimestamp, timestampTitle } from "@/lib/format";
 
 type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ok"; items: Notification[] };
 
+/**
+ * Owner-only in-app notifications (GET /v1/notifications, R2-D2-04). GoalPulse only
+ * notifies about offers Goal Evaluation verified, so every item is a verified offer;
+ * candidates and unknowns never appear here (they're on the goal page).
+ */
 export function NotificationsFeed() {
-  const api = getProposedApi();
+  const api = getApi();
   const [state, setState] = useState<Load>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!api) return;
     let cancelled = false;
     api.listNotifications(50).then(
       (items) => !cancelled && setState({ status: "ok", items }),
@@ -31,17 +35,17 @@ export function NotificationsFeed() {
     };
   }, [api, attempt]);
 
-  if (!api) return <Icp02Pending what="Notifications" />;
-
   async function markRead(id: string) {
     setError(null);
     try {
-      await api!.markNotificationRead(id);
+      await api.markNotificationRead(id);
       setState((s) =>
         s.status === "ok" ? { ...s, items: s.items.map((n) => (n.notification_id === id ? { ...n, is_read: true } : n)) } : s,
       );
     } catch (err) {
-      setError(adviceFor(err, "load").message);
+      const gone = err instanceof ApiError && err.kind === "not_found";
+      setError(gone ? "That notification doesn't exist or isn't yours. We reloaded your notifications." : adviceFor(err, "load").message);
+      if (gone) setAttempt((n) => n + 1);
     }
   }
 
@@ -72,47 +76,56 @@ export function NotificationsFeed() {
     );
   }
 
+  const unread = state.items.filter((n) => !n.is_read).length;
+
   return (
     <>
-      {error && (
-        <Notice tone="error">
-          {error}
-        </Notice>
-      )}
+      <p className="hint" aria-live="polite">
+        {unread === 0 ? "All read." : `${unread} unread.`}
+      </p>
+      {error && <Notice tone="error">{error}</Notice>}
       <ul className="feed">
-        {state.items.map((n) => (
-          <li key={n.notification_id} className={`card notification${n.is_read ? "" : " unread"}`}>
-            <div className="goal-card-head">
-              <h2>{n.title}</h2>
-              {!n.is_read && <span className="badge badge-unread">New</span>}
-            </div>
-            <p>{n.summary}</p>
-            <p className="hint">
-              <time dateTime={n.created_at} title={`${n.created_at} (UTC)`}>
-                {formatTimestamp(n.created_at)}
-              </time>{" "}
-              · goal version {n.goal_version} · Offers can change before checkout.
-            </p>
-            <div className="actions actions-start">
-              {n.action_package_id && (
-                <Link
-                  className="with-icon"
-                  href={`/packages/${n.action_package_id}`}
-                  onClick={() => !n.is_read && void markRead(n.notification_id)}
-                >
-                  <Icon icon={Package} />
-                  View prepared purchase
-                </Link>
-              )}
-              <Link href={`/goals/${n.goal_id}`}>View goal</Link>
-              {!n.is_read && (
-                <button type="button" className="link-button" onClick={() => void markRead(n.notification_id)}>
-                  Mark as read
-                </button>
-              )}
-            </div>
-          </li>
-        ))}
+        {state.items.map((n) => {
+          const packageId = hasMockControls(api) ? api.packageIdFor(n.notification_id) : null;
+          return (
+            <li key={n.notification_id} className={`card notification${n.is_read ? "" : " unread"}`}>
+              <div className="goal-card-head">
+                <h2>{n.title}</h2>
+                {!n.is_read && <span className="badge badge-unread">New</span>}
+              </div>
+              <p className="with-icon">
+                <Icon icon={BadgeCheck} />
+                Verified offer · not ordered
+              </p>
+              <p>{n.summary}</p>
+              <p className="hint">
+                <time dateTime={n.created_at} title={timestampTitle(n.created_at)}>
+                  {formatTimestamp(n.created_at)}
+                </time>{" "}
+                · goal version {n.goal_version} · Offers can change before checkout; re-check on the seller&apos;s site.
+              </p>
+              <div className="actions actions-start">
+                {/* Mock only: the public Notification has no package link (see README). */}
+                {packageId && (
+                  <Link
+                    className="with-icon"
+                    href={`/packages/${packageId}`}
+                    onClick={() => !n.is_read && void markRead(n.notification_id)}
+                  >
+                    <Icon icon={Package} />
+                    View prepared purchase
+                  </Link>
+                )}
+                <Link href={`/goals/${n.goal_id}`}>View goal and evidence</Link>
+                {!n.is_read && (
+                  <button type="button" className="link-button" onClick={() => void markRead(n.notification_id)}>
+                    Mark as read
+                  </button>
+                )}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </>
   );

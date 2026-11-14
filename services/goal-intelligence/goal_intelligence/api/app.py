@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import AuthError, Authenticator, Caller, GM_CANDIDATE_SCOPE, GM_CONFIRM_SCOPE
-from ..config import Settings, build_authenticator, build_service
+from ..config import Settings, build_authenticator, build_service, runtime_disclosure
 from ..service import GoalDraftOut, GoalIntelligenceService, ServiceError
 
 log = logging.getLogger("goal_intelligence.api")
@@ -61,7 +61,12 @@ def create_app(
     authenticator: Authenticator | None = None,
 ) -> FastAPI:
     settings = Settings()
-    svc = service or build_service(settings)
+    if service is None:
+        svc = build_service(settings)  # validates the profile and fails closed (ConfigError)
+        disclosure = runtime_disclosure(settings)
+    else:  # injected by tests
+        svc = service
+        disclosure = {"profile": settings.profile or "test", "llm_provider": "injected"}
     auth = authenticator or build_authenticator(settings)
     app = FastAPI(title="GoalPulse Goal Intelligence", version="1.0.0", docs_url=None, redoc_url=None)
 
@@ -105,7 +110,8 @@ def create_app(
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict[str, str]:
-        return {"status": "ok"}
+        # Non-secret runtime disclosure (ADR-0003 MVP-05): which provider receives goal text.
+        return {"status": "ok", **disclosure}
 
     @app.post("/v1/goal-sessions", status_code=201, response_model=GoalDraftOut)
     def create_session(body: CreateSessionIn, caller: Annotated[Caller, Depends(user)]) -> GoalDraftOut:
