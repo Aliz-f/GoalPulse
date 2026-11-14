@@ -16,6 +16,7 @@ from __future__ import annotations
 import copy
 import json
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
@@ -569,8 +570,9 @@ def build_candidate(state: WorkingState) -> dict[str, Any]:
 # --------------------------------------------------------------------------- compile
 
 
-def compile_turn(prev: WorkingState, patch: ExtractionPatch) -> CompileResult:
+def compile_turn(prev: WorkingState, patch: ExtractionPatch, extra_notices: Sequence[str] = ()) -> CompileResult:
     state, notices = apply_patch(prev, patch)
+    notices = [*extra_notices, *notices]
     _fill_proposals(state)
     missing = missing_fields(state)
     candidate = build_candidate(state)

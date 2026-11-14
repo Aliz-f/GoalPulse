@@ -19,7 +19,7 @@ from goal_intelligence.llm.base import (
     ResilientExtractor,
 )
 from goal_intelligence.llm.fixture import FixtureExtractor
-from goal_intelligence.service import InvalidInput, ModelUnavailable
+from goal_intelligence.service import RETRY_NOTICE, InvalidInput
 
 SECRET = "sk-ant-test-SECRET-should-never-appear"
 
@@ -86,16 +86,22 @@ def test_input_limit_enforced_before_calling_provider():
     assert inner.calls == 0
 
 
-def test_malformed_model_output_does_not_create_or_advance_draft(make_service, repo):
+def test_model_failure_is_a_recoverable_clarification_not_a_503(make_service, goal_draft_validator):
+    # The frozen API has no 503: a failed model call applies nothing and asks to resend.
     svc = make_service(Scripted(*[ExtractorMalformedOutput("bad")] * 3))
-    with pytest.raises(ModelUnavailable):
-        svc.create_session(USER_A, "I want to buy an RTX 5070")
-    ok = make_service().create_session(USER_A, "I want to buy an RTX 5070")
+    first = svc.create_session(USER_A, "I want to buy an RTX 5070")
+    goal_draft_validator.validate(first.model_dump())
+    assert first.revision == 1 and not first.ready_for_confirmation
+    assert first.next_question.startswith(RETRY_NOTICE)
+    assert "criteria" not in first.candidate_goal
+
+    ok = make_service().create_session(USER_A, "I want to buy an RTX 5070 for under 600 euros")
     failing = make_service(Scripted(*[ExtractorRateLimited("r")] * 3))
-    with pytest.raises(ModelUnavailable):
-        failing.post_message(USER_A, ok.session_id, "yes", ok.revision)
-    after = make_service().get_session(USER_A, ok.session_id)
-    assert after.revision == ok.revision and after.ready_for_confirmation is False
+    after = failing.post_message(USER_A, ok.session_id, "yes", ok.revision)
+    assert after.revision == ok.revision + 1  # the message was received...
+    assert after.candidate_goal == ok.candidate_goal  # ...but nothing from the failed call was applied
+    assert after.missing_fields == ok.missing_fields and not after.ready_for_confirmation
+    assert after.next_question.startswith(RETRY_NOTICE)
 
 
 def test_too_long_message_is_422_not_model_failure(make_service):

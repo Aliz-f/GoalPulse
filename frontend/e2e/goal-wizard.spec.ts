@@ -53,7 +53,7 @@ test("edit from another tab: 409 reloads the latest revision and keeps the typed
   await box.fill("yes");
   await page.getByRole("button", { name: "Send", exact: true }).click();
 
-  await expect(view(page).getByRole("alert")).toContainText("now revision 2");
+  await expect(view(page).getByRole("alert")).toContainText("We loaded the latest version");
   await expect(revisionBadge(page)).toHaveText("Revision 2");
   await expect(box).toHaveValue("yes");
 });

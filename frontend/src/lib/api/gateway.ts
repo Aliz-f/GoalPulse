@@ -53,15 +53,18 @@ export function createGatewayApi(opts: GatewayOptions): GoalPulseApi {
     if (res.status === 204) return undefined as T;
     if (res.ok) return (await res.json()) as T;
 
-    let detail: { message?: unknown; current_revision?: unknown } = {};
+    // Error body is the ICP-01 shape {code, message}; the frozen gateway contract
+    // doesn't require one, so fall back to the status. A 409 carries no revision:
+    // callers re-GET the session to see the latest draft.
+    let detail: { code?: unknown; message?: unknown } = {};
     try {
       detail = await res.json();
     } catch {
-      // error bodies are optional in the frozen contract
+      // no body
     }
-    const current = typeof detail.current_revision === "number" ? detail.current_revision : null;
     const message = typeof detail.message === "string" ? detail.message : `HTTP ${res.status}`;
-    throw new ApiError(res.status, kindForStatus(res.status), message, current);
+    const code = typeof detail.code === "string" ? detail.code : null;
+    throw new ApiError(res.status, kindForStatus(res.status), message, code);
   }
 
   const session = (id: string) => `/v1/goal-sessions/${encodeURIComponent(id)}`;

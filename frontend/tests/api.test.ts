@@ -43,7 +43,7 @@ describe("mock api (recorded from Goal Intelligence)", () => {
     api.simulateConcurrentEdit(d.session_id);
     await assert.rejects(api.sendMessage(d.session_id, "yes", d.revision), (e: ApiError) => {
       assert.equal(e.kind, "conflict");
-      assert.equal(e.currentRevision, 2);
+      assert.equal(e.code, "conflict");
       return true;
     });
     const fresh = await api.getSession(d.session_id);
@@ -121,13 +121,13 @@ describe("gateway client (frozen public contract)", () => {
     assert.equal(calls.length, 0);
   });
 
-  it("maps 409 with current_revision and network failures", async () => {
+  it("maps the ICP-01 {code, message} error body and network failures", async () => {
     const api = createGatewayApi({
       baseUrl: "http://gw",
       getToken: () => "t",
-      fetchImpl: fakeFetch(409, { error: "conflict", message: "stale", current_revision: 7 }, []),
+      fetchImpl: fakeFetch(409, { code: "conflict", message: "stale revision; reload the draft" }, []),
     });
-    await assert.rejects(api.sendMessage("s", "m", 6), (e: ApiError) => e.kind === "conflict" && e.currentRevision === 7);
+    await assert.rejects(api.sendMessage("s", "m", 6), (e: ApiError) => e.kind === "conflict" && e.code === "conflict" && e.message === "stale revision; reload the draft");
     const offline = createGatewayApi({
       baseUrl: "http://gw",
       getToken: () => "t",
@@ -147,10 +147,10 @@ describe("gateway client (frozen public contract)", () => {
 
 describe("error advice", () => {
   it("409 reloads and keeps the typed text; 404 does not", () => {
-    const conflict = adviceFor(new ApiError(409, "conflict", "stale", 4), "send");
+    const conflict = adviceFor(new ApiError(409, "conflict", "stale", "conflict"), "send");
     assert.equal(conflict.reload, true);
     assert.equal(conflict.keepInput, true);
-    assert.match(conflict.message, /revision 4/);
+    assert.match(conflict.message, /loaded the latest version/);
     assert.equal(adviceFor(new ApiError(404, "not_found", "x"), "load").keepInput, false);
     assert.equal(adviceFor(new ApiError(409, "conflict", "x"), "confirm").reload, true);
     assert.equal(adviceFor(new Error("boom"), "send").reload, false);

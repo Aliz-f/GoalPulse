@@ -42,9 +42,8 @@ def main() -> None:
             "goal-draft.procurement.ready.json": draft(cafe, 2),
             "goal-draft.product.collecting.json": draft(svc.create_session(USER_A, PRODUCT_FLOW[0]), 3),
             "goal-draft.unsupported.json": draft(svc.create_session(USER_A, "Book me a flight to Rome under 200 EUR"), 4),
-            "error.409.stale-revision.json": {
-                "error": "conflict", "message": "stale revision; reload the draft", "current_revision": 2,
-            },
+            # ICP-01 Error shape: {code, message}; clients re-GET the session after a 409.
+            "error.409.stale-revision.json": {"code": "conflict", "message": "stale revision; reload the draft"},
         }
         for name, src, n in (("product", product, 1), ("procurement", cafe, 2)):
             spec = dict(src.candidate_goal)

@@ -1,13 +1,19 @@
-"""FastAPI routes: frozen public /v1 session endpoints + proposed internal GM endpoints.
+"""FastAPI routes: frozen public /v1 session endpoints + ICP-01 internal GM endpoints.
 
 Run: ``uvicorn goal_intelligence.api.app:create_app --factory --port 8102``
 (from services/goal-intelligence, with GI_* environment variables set).
+
+Errors use the ICP-01 ``Error`` shape ``{"code", "message"}`` everywhere. Status codes
+stay within what the contracts list: public create 201/401/422; message
+200/401/404/409/422; get 200/401/404; internal candidate 200/403/404/409;
+internal mark-confirmed 204/403/409.
 """
 
 # No "from __future__ import annotations": FastAPI must see real types on the
 # locally defined dependencies below.
+import logging
 import uuid
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, Path, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -16,10 +22,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import AuthError, Authenticator, Caller
 from ..config import Settings, build_authenticator, build_service
-from ..service import Conflict, GoalDraftOut, GoalIntelligenceService, ServiceError
+from ..service import GoalDraftOut, GoalIntelligenceService, ServiceError
 
+log = logging.getLogger("goal_intelligence.api")
 
 SessionId = Annotated[uuid.UUID, Path()]
+CORRELATION_HEADER = "X-Correlation-ID"
 
 
 class CreateSessionIn(BaseModel):
@@ -39,6 +47,18 @@ class MarkConfirmedIn(BaseModel):
     expected_revision: int = Field(ge=1)
 
 
+def error(status: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse({"code": code, "message": message}, status_code=status)
+
+
+def _correlation_id(raw: str | None) -> str:
+    """Propagate a caller's UUID correlation id; mint one otherwise (10-internal-contracts)."""
+    try:
+        return str(uuid.UUID(raw or ""))
+    except ValueError:
+        return str(uuid.uuid4())
+
+
 def create_app(
     service: GoalIntelligenceService | None = None,
     authenticator: Authenticator | None = None,
@@ -49,31 +69,36 @@ def create_app(
     app = FastAPI(title="GoalPulse Goal Intelligence", version="1.0.0", docs_url=None, redoc_url=None)
 
     def user(
-        x_service_token: Annotated[str | None, Header()] = None,
+        authorization: Annotated[str | None, Header()] = None,
         x_authenticated_user_id: Annotated[str | None, Header()] = None,
     ) -> Caller:
-        return auth.user_caller(x_service_token, x_authenticated_user_id)
+        return auth.user_caller(authorization, x_authenticated_user_id)
 
-    def gm(x_service_token: Annotated[str | None, Header()] = None) -> Caller:
-        return auth.internal_caller(x_service_token)
+    def gm(authorization: Annotated[str | None, Header()] = None) -> Caller:
+        return auth.internal_caller(authorization)
+
+    @app.middleware("http")
+    async def correlation(request: Request, call_next):  # type: ignore[no-untyped-def]
+        cid = _correlation_id(request.headers.get(CORRELATION_HEADER))
+        request.state.correlation_id = cid
+        response = await call_next(request)
+        response.headers[CORRELATION_HEADER] = cid
+        return response
 
     @app.exception_handler(AuthError)
     async def _auth_error(_: Request, exc: AuthError) -> JSONResponse:
-        code = "forbidden" if exc.status == 403 else "unauthorized"
-        return JSONResponse({"error": code, "message": str(exc)}, status_code=exc.status)
+        return error(exc.status, "forbidden" if exc.status == 403 else "unauthorized", str(exc))
 
     @app.exception_handler(ServiceError)
-    async def _service_error(_: Request, exc: ServiceError) -> JSONResponse:
-        body: dict[str, Any] = {"error": exc.code, "message": str(exc)}
-        if isinstance(exc, Conflict) and exc.current_revision is not None:
-            body["current_revision"] = exc.current_revision
-        return JSONResponse(body, status_code=exc.status)
+    async def _service_error(request: Request, exc: ServiceError) -> JSONResponse:
+        log.info("request %s -> %s", getattr(request.state, "correlation_id", "-"), exc.code)
+        return error(exc.status, exc.code, str(exc))
 
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, exc: RequestValidationError) -> JSONResponse:
-        # Do not echo the submitted text back (it may be private).
+        # Name the fields, never echo the submitted text back (it may be private).
         fields = sorted({".".join(str(p) for p in e.get("loc", ())) for e in exc.errors()})
-        return JSONResponse({"error": "invalid_input", "fields": fields}, status_code=422)
+        return error(422, "invalid_input", "invalid fields: " + ", ".join(fields))
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict[str, str]:
@@ -91,7 +116,7 @@ def create_app(
     def get_session(session_id: SessionId, caller: Annotated[Caller, Depends(user)]) -> GoalDraftOut:
         return svc.get_session(caller.user_id or "", str(session_id))
 
-    # ---- internal, Goal Management only (ICP-01 proposal; do not expose through the gateway)
+    # ---- internal, Goal Management only (ICP-01; never route through the public gateway)
 
     @app.get("/internal/v1/goal-sessions/{session_id}/candidate", response_model=GoalDraftOut)
     def get_candidate(

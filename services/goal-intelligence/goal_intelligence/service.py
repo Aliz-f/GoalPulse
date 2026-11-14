@@ -5,13 +5,14 @@ Framework-free so it can be tested without FastAPI. Each user turn:
 2. asks the extractor for an untrusted patch (outside any DB transaction),
 3. compiles it deterministically,
 4. appends revision N+1 only if the session is still at N (else 409).
-A failed extraction changes nothing: the user resends the same message.
+A failed extraction applies nothing and asks the user to resend (no undocumented 503).
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -67,26 +68,32 @@ class InvalidInput(ServiceError):
     status, code = 422, "invalid_input"
 
 
-class ModelUnavailable(ServiceError):
-    status, code = 503, "assistant_unavailable"
-
-
 @dataclass
 class Limits:
     max_message_chars: int = 2000
     max_user_turns: int = 20
 
 
-def to_goal_draft(rec: DraftRecord) -> GoalDraftOut:
-    ready = rec.state == "ready_for_confirmation"
+OPEN_STATES = ("collecting", "ready_for_confirmation")
+RETRY_NOTICE = "Sorry, I couldn't process that message just now. Could you send it again?"
+EXPIRED_QUESTION = "This conversation expired. Please start a new goal."
+
+
+def to_goal_draft(rec: DraftRecord, now: datetime | None = None) -> GoalDraftOut:
+    """Exact GoalDraft.v1. An open session past its expiry is reported as ``abandoned``."""
+    state = rec.state
+    question = rec.next_question
+    if state in OPEN_STATES and now is not None and rec.expires_at <= now:
+        state, question = "abandoned", EXPIRED_QUESTION
+    ready = state == "ready_for_confirmation"
     return GoalDraftOut(
         session_id=rec.session_id,
         owner_user_id=rec.owner_user_id,
         revision=rec.revision,
-        state=rec.state,
+        state=state,
         candidate_goal=rec.candidate_goal,
         missing_fields=[] if ready else list(rec.missing_fields),
-        next_question=None if ready else rec.next_question,
+        next_question=None if ready else question,
         ready_for_confirmation=ready,
     )
 
@@ -99,6 +106,9 @@ class GoalIntelligenceService:
 
     # ------------------------------------------------------------------ helpers
 
+    def _now(self) -> datetime:
+        return self.repo.clock()
+
     def _check_text(self, text: str, minimum: int) -> str:
         if not isinstance(text, str):
             raise InvalidInput("message must be text")
@@ -109,7 +119,12 @@ class GoalIntelligenceService:
             raise InvalidInput(f"message must be at most {self.limits.max_message_chars} characters")
         return text
 
-    def _extract(self, text: str, state: WorkingState, session_id: str | None, revision: int | None) -> ExtractionPatch:
+    def _extract(
+        self, text: str, state: WorkingState, session_id: str | None, revision: int | None
+    ) -> tuple[ExtractionPatch, list[str]]:
+        """Returns (patch, notices). A failed model call yields an empty patch plus a
+        retry notice: the frozen API has no 503, so the failure surfaces as a recoverable
+        clarification and nothing the model said is applied."""
         request = ExtractionRequest(
             message=text,
             goal_type=state.goal_type,
@@ -118,13 +133,11 @@ class GoalIntelligenceService:
             item_names=[i.name for i in state.items],
         )
         try:
-            return self.extractor.extract(request)
+            return self.extractor.extract(request), []
         except InputTooLarge as exc:
             raise InvalidInput(str(exc)) from exc
-        except ExtractorError as exc:
-            raise ModelUnavailable(
-                "The assistant couldn't process that message right now. Nothing was changed; please send it again."
-            ) from exc
+        except ExtractorError:
+            return ExtractionPatch(), [RETRY_NOTICE]
         finally:
             attempts = [Attempt(a.model_id, a.error_code, a.latency_ms) for a in self.extractor.attempts]
             try:
@@ -133,8 +146,8 @@ class GoalIntelligenceService:
                 log.warning("could not record llm attempt metadata")
 
     @staticmethod
-    def _revision_data(state: WorkingState, patch: ExtractionPatch) -> tuple[RevisionData, str | None]:
-        result = compile_turn(state, patch)
+    def _revision_data(state: WorkingState, patch: ExtractionPatch, notices: list[str]) -> tuple[RevisionData, str | None]:
+        result = compile_turn(state, patch, extra_notices=notices)
         data = RevisionData(
             state="ready_for_confirmation" if result.ready else "collecting",
             candidate_goal=result.candidate_goal,
@@ -153,42 +166,39 @@ class GoalIntelligenceService:
 
     def create_session(self, owner_user_id: str, initial_message: str) -> GoalDraftOut:
         text = self._check_text(initial_message, 3)
-        patch = self._extract(text, WorkingState(), None, None)
-        data, question = self._revision_data(WorkingState(), patch)
+        patch, notices = self._extract(text, WorkingState(), None, None)
+        data, question = self._revision_data(WorkingState(), patch, notices)
         rec = self.repo.create_session(
             owner_user_id, data, [Message("user", text), Message("assistant", self._assistant_reply(question))]
         )
-        return to_goal_draft(rec)
+        return to_goal_draft(rec, self._now())
 
     def post_message(self, owner_user_id: str, session_id: str, message: str, expected_revision: int) -> GoalDraftOut:
         text = self._check_text(message, 1)
         rec = self._get_owned(session_id, owner_user_id)
-        if rec.state not in ("collecting", "ready_for_confirmation"):
-            raise Conflict(f"session is {rec.state}", rec.revision)
-        if rec.expires_at <= self.repo.clock():
-            raise Conflict("this conversation expired; please start a new goal", rec.revision)
+        if to_goal_draft(rec, self._now()).state not in OPEN_STATES:
+            raise Conflict("this conversation is closed; please start a new goal", rec.revision)
         if expected_revision != rec.revision:
             raise Conflict("stale revision; reload the draft", rec.revision)
         if self.repo.count_user_messages(session_id) >= self.limits.max_user_turns:
+            self.repo.abandon(session_id, owner_user_id)
             raise Conflict("this conversation reached its turn limit; please start a new goal", rec.revision)
 
         state = WorkingState.model_validate(rec.working_state)
-        patch = self._extract(text, state, session_id, rec.revision)
-        data, question = self._revision_data(state, patch)
+        patch, notices = self._extract(text, state, session_id, rec.revision)
+        data, question = self._revision_data(state, patch, notices)
         try:
             new = self.repo.append_revision(
                 session_id, owner_user_id, expected_revision, data,
                 [Message("user", text), Message("assistant", self._assistant_reply(question))],
             )
-        except SessionClosed as exc:
-            raise Conflict("session no longer accepts messages") from exc
         except Exception as exc:
             _translate(exc)
             raise
-        return to_goal_draft(new)
+        return to_goal_draft(new, self._now())
 
     def get_session(self, owner_user_id: str, session_id: str) -> GoalDraftOut:
-        return to_goal_draft(self._get_owned(session_id, owner_user_id))
+        return to_goal_draft(self._get_owned(session_id, owner_user_id), self._now())
 
     def _get_owned(self, session_id: str, owner_user_id: str) -> DraftRecord:
         try:
@@ -200,21 +210,28 @@ class GoalIntelligenceService:
     # ------------------------------------------------------------------ internal API (GM only)
 
     def get_candidate(self, session_id: str, expected_revision: int) -> GoalDraftOut:
+        """ICP-01: 200 exact ready revision; 404 unknown session; 409 stale or not ready."""
         try:
             rec = self.repo.get_current(session_id, None)
         except Exception as exc:
             _translate(exc)
             raise
-        if rec.revision != expected_revision:
+        draft = to_goal_draft(rec, self._now())
+        if draft.revision != expected_revision:
             raise Conflict("stale revision", rec.revision)
-        if rec.state != "ready_for_confirmation":
-            raise Conflict(f"draft is {rec.state}, not ready for confirmation", rec.revision)
-        return to_goal_draft(rec)
+        if draft.state != "ready_for_confirmation":
+            raise Conflict(f"draft is {draft.state}, not ready for confirmation", rec.revision)
+        return draft
 
     def mark_confirmed(self, session_id: str, goal_id: str, expected_revision: int) -> None:
+        """ICP-01 lists only 204 / 403 / 409, so an unknown session is a 409 mismatch."""
         try:
             self.repo.mark_confirmed(session_id, expected_revision, goal_id)
         except Exception as exc:
+            from .persistence.repository import SessionNotFound
+
+            if isinstance(exc, SessionNotFound):
+                raise Conflict("no such session to mark confirmed") from exc
             _translate(exc)
             raise
 

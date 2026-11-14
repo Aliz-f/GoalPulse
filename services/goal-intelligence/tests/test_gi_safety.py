@@ -10,7 +10,7 @@ from conftest import USER_A, USER_B, assemble_goal_spec, converse
 
 from goal_intelligence.domain.extraction import ExtractionPatch
 from goal_intelligence.llm.base import ExtractorMalformedOutput, parse_patch
-from goal_intelligence.service import Conflict, InvalidInput, ModelUnavailable
+from goal_intelligence.service import Conflict, InvalidInput
 from test_gi_compiler import PRODUCT_FLOW
 
 INJECTIONS = [
@@ -178,7 +178,6 @@ def test_logs_do_not_contain_messages_or_secrets(make_service, caplog):
             raise ExtractorMalformedOutput(f"bad output for {request.message}")
 
     with caplog.at_level(logging.DEBUG):
-        with pytest.raises(ModelUnavailable):
-            make_service(Failing()).create_session(USER_A, secret_text)
+        make_service(Failing()).create_session(USER_A, secret_text)
         make_service().create_session(USER_A, secret_text)
     assert "4111" not in caplog.text

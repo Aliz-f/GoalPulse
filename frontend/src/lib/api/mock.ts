@@ -191,8 +191,8 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
       await wait();
       const s = get(sessionId);
       if (!message.trim()) throw new ApiError(422, "invalid", "message must not be empty");
-      if (s.state === "confirmed" || s.state === "abandoned") throw new ApiError(409, "conflict", `session is ${s.state}`, s.revision);
-      if (expectedRevision !== s.revision) throw new ApiError(409, "conflict", "stale revision", s.revision);
+      if (s.state === "confirmed" || s.state === "abandoned") throw new ApiError(409, "conflict", `session is ${s.state}`, "conflict");
+      if (expectedRevision !== s.revision) throw new ApiError(409, "conflict", "stale revision", "conflict");
       s.step = Math.min(s.step + 1, s.script.steps.length - 1);
       s.revision += 1;
       s.state = s.script.steps[s.step].draft.state;
@@ -208,7 +208,7 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
       await wait();
       const s = get(sessionId);
       if (s.revision !== expectedRevision || s.state !== "ready_for_confirmation") {
-        throw new ApiError(409, "conflict", "draft incomplete, stale, or already confirmed", s.revision);
+        throw new ApiError(409, "conflict", "draft incomplete, stale, or already confirmed", "conflict");
       }
       const candidate = structuredClone(s.script.steps[s.step].draft.candidate_goal) as unknown as CandidateParts;
       s.state = "confirmed";

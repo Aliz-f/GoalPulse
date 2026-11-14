@@ -1,5 +1,6 @@
 -- Goal Intelligence owned schema (database: goal_intelligence). PostgreSQL 15+.
--- D2-GI-01: sessions, transcript, immutable draft revisions, LLM attempt metadata.
+-- D2-GI-01: sessions, conversation_messages (transcript), immutable draft revisions, LLM attempt metadata.
+-- Table names follow docs/data-model.md.
 -- No other service reads these tables; GM uses the internal HTTP candidate API.
 
 BEGIN;
@@ -19,7 +20,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS sessions_owner_idx ON sessions (owner_user_id, updated_at DESC);
 
-CREATE TABLE IF NOT EXISTS messages (
+CREATE TABLE IF NOT EXISTS conversation_messages (
     message_id  uuid PRIMARY KEY,
     session_id  uuid        NOT NULL REFERENCES sessions (session_id),
     revision    integer     NOT NULL,
@@ -28,7 +29,7 @@ CREATE TABLE IF NOT EXISTS messages (
     token_count integer     NULL,
     created_at  timestamptz NOT NULL
 );
-CREATE INDEX IF NOT EXISTS messages_session_idx ON messages (session_id, created_at);
+CREATE INDEX IF NOT EXISTS conversation_messages_session_idx ON conversation_messages (session_id, created_at);
 
 CREATE TABLE IF NOT EXISTS draft_revisions (
     session_id     uuid        NOT NULL REFERENCES sessions (session_id),

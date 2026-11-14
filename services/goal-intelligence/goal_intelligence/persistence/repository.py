@@ -95,7 +95,10 @@ class SqlDraftRepository:
     # ------------------------------------------------------------------ helpers
 
     def _sql(self, sql: str) -> str:
-        return sql.replace("?", "%s") if self.dialect == "postgres" else sql
+        """``?`` placeholders; ``?j`` marks a JSON value (cast to jsonb on Postgres)."""
+        if self.dialect == "postgres":
+            return sql.replace("?j", "%s::jsonb").replace("?", "%s")
+        return sql.replace("?j", "?")
 
     @contextmanager
     def _tx(self) -> Iterator[Any]:
@@ -129,15 +132,19 @@ class SqlDraftRepository:
     def _now(self) -> datetime:
         return self.clock()
 
+    def _t(self, value: datetime) -> Any:
+        """Timestamp parameter: timestamptz-native for Postgres, ISO-8601 text for SQLite."""
+        return value if self.dialect == "postgres" else value.isoformat()
+
     def _insert_revision(self, cur: Any, session_id: str, revision: int, data: RevisionData, now: datetime) -> None:
         cur.execute(
             self._sql(
                 "INSERT INTO draft_revisions (session_id, revision, state, candidate_goal, missing_fields, "
-                "next_question, ready, working_state, created_at) VALUES (?,?,?,?,?,?,?,?,?)"
+                "next_question, ready, working_state, created_at) VALUES (?,?,?,?j,?j,?,?,?j,?)"
             ),
             (
                 session_id, revision, data.state, self._json(data.candidate_goal), self._json(data.missing_fields),
-                data.next_question, data.ready, self._json(data.working_state), now.isoformat(),
+                data.next_question, data.ready, self._json(data.working_state), self._t(now),
             ),
         )
 
@@ -145,11 +152,11 @@ class SqlDraftRepository:
         for offset, m in enumerate(messages):
             cur.execute(
                 self._sql(
-                    "INSERT INTO messages (message_id, session_id, revision, role, content, created_at) "
+                    "INSERT INTO conversation_messages (message_id, session_id, revision, role, content, created_at) "
                     "VALUES (?,?,?,?,?,?)"
                 ),
                 (str(uuid.uuid4()), session_id, revision, m.role, m.content,
-                 (now + timedelta(microseconds=offset)).isoformat()),
+                 self._t(now + timedelta(microseconds=offset))),
             )
 
     # ------------------------------------------------------------------ commands
@@ -163,8 +170,8 @@ class SqlDraftRepository:
                     "INSERT INTO sessions (session_id, owner_user_id, state, current_revision, ready_for_confirmation, "
                     "confirmed_goal_id, created_at, updated_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?)"
                 ),
-                (session_id, owner_user_id, data.state, 1, data.ready, None, now.isoformat(), now.isoformat(),
-                 (now + self.session_ttl).isoformat()),
+                (session_id, owner_user_id, data.state, 1, data.ready, None, self._t(now), self._t(now),
+                 self._t(now + self.session_ttl)),
             )
             self._insert_revision(cur, session_id, 1, data, now)
             self._insert_messages(cur, session_id, 1, messages, now)
@@ -187,8 +194,8 @@ class SqlDraftRepository:
                     "WHERE session_id = ? AND owner_user_id = ? AND current_revision = ? "
                     "AND state IN ('collecting','ready_for_confirmation') AND expires_at > ?"
                 ),
-                (new_revision, data.state, data.ready, now.isoformat(), session_id, owner_user_id,
-                 expected_revision, now.isoformat()),
+                (new_revision, data.state, data.ready, self._t(now), session_id, owner_user_id,
+                 expected_revision, self._t(now)),
             )
             if cur.rowcount != 1:
                 self._raise_for_failed_write(cur, session_id, owner_user_id, now)
@@ -218,7 +225,7 @@ class SqlDraftRepository:
                     "UPDATE sessions SET state = 'confirmed', confirmed_goal_id = ?, ready_for_confirmation = false, "
                     "updated_at = ? WHERE session_id = ? AND current_revision = ? AND state = 'ready_for_confirmation'"
                 ),
-                (goal_id, now.isoformat(), session_id, expected_revision),
+                (goal_id, self._t(now), session_id, expected_revision),
             )
             if cur.rowcount == 1:
                 return
@@ -234,6 +241,17 @@ class SqlDraftRepository:
                 return
             raise ConfirmConflict(f"session is {state} at revision {current}")
 
+    def abandon(self, session_id: str, owner_user_id: str) -> None:
+        """Close an open session (turn limit reached). Idempotent; confirmed sessions are untouched."""
+        with self._tx() as cur:
+            cur.execute(
+                self._sql(
+                    "UPDATE sessions SET state = 'abandoned', ready_for_confirmation = false, updated_at = ? "
+                    "WHERE session_id = ? AND owner_user_id = ? AND state IN ('collecting','ready_for_confirmation')"
+                ),
+                (self._t(self._now()), session_id, owner_user_id),
+            )
+
     def record_attempts(self, session_id: str | None, revision: int | None, attempts: Sequence[Attempt]) -> None:
         if not attempts:
             return
@@ -245,7 +263,7 @@ class SqlDraftRepository:
                         "INSERT INTO llm_attempts (id, session_id, revision, model_id, error_code, latency_ms, created_at) "
                         "VALUES (?,?,?,?,?,?,?)"
                     ),
-                    (str(uuid.uuid4()), session_id, revision, a.model_id, a.error_code, a.latency_ms, now.isoformat()),
+                    (str(uuid.uuid4()), session_id, revision, a.model_id, a.error_code, a.latency_ms, self._t(now)),
                 )
 
     # ------------------------------------------------------------------ queries
@@ -283,7 +301,7 @@ class SqlDraftRepository:
         conn = self.connect()
         try:
             cur = conn.cursor()
-            cur.execute(self._sql("SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'user'"), (session_id,))
+            cur.execute(self._sql("SELECT COUNT(*) FROM conversation_messages WHERE session_id = ? AND role = 'user'"), (session_id,))
             return int(cur.fetchone()[0])
         finally:
             conn.close()
@@ -293,7 +311,7 @@ class SqlDraftRepository:
         try:
             cur = conn.cursor()
             cur.execute(
-                self._sql("SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at, message_id"),
+                self._sql("SELECT role, content FROM conversation_messages WHERE session_id = ? ORDER BY created_at, message_id"),
                 (session_id,),
             )
             return [Message(role=r, content=c) for r, c in cur.fetchall()]
@@ -313,7 +331,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     CHECK (state <> 'ready_for_confirmation' OR ready_for_confirmation),
     CHECK ((state = 'confirmed') = (confirmed_goal_id IS NOT NULL))
 );
-CREATE TABLE IF NOT EXISTS messages (
+CREATE TABLE IF NOT EXISTS conversation_messages (
     message_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(session_id), revision INTEGER NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('user','assistant','system')), content TEXT NOT NULL,
     token_count INTEGER NULL, created_at TEXT NOT NULL

@@ -70,12 +70,38 @@ def test_mark_confirmed_idempotent_then_session_closed(service):
         service.get_candidate(draft.session_id, draft.revision)
 
 
-def test_turn_limit(make_service):
+def test_turn_limit_abandons_session(make_service):
     svc = make_service(max_user_turns=2)
     draft = svc.create_session(USER_A, "I want to buy an RTX 5070")
     draft = svc.post_message(USER_A, draft.session_id, "600 euros", draft.revision)
     with pytest.raises(Conflict, match="turn limit"):
         svc.post_message(USER_A, draft.session_id, "yes", draft.revision)
+    assert svc.get_session(USER_A, draft.session_id).state == "abandoned"
+
+
+def test_expired_session_reads_as_abandoned(repo, make_service, goal_draft_validator):
+    from datetime import timedelta
+
+    svc = make_service()
+    draft = svc.create_session(USER_A, "I want to buy an RTX 5070")
+    real_clock = repo.clock
+    repo.clock = lambda: real_clock() + timedelta(days=2)
+    try:
+        expired = svc.get_session(USER_A, draft.session_id)
+        goal_draft_validator.validate(expired.model_dump())
+        assert expired.state == "abandoned" and not expired.ready_for_confirmation
+        with pytest.raises(Conflict):
+            svc.post_message(USER_A, draft.session_id, "yes", draft.revision)
+        with pytest.raises(Conflict):
+            svc.get_candidate(draft.session_id, draft.revision)
+    finally:
+        repo.clock = real_clock
+
+
+def test_mark_confirmed_unknown_session_is_409_not_404(service):
+    # ICP-01 mark-confirmed lists only 204 / 403 / 409
+    with pytest.raises(Conflict):
+        service.mark_confirmed(str(uuid.uuid4()), str(uuid.uuid4()), 1)
 
 
 # ---------------------------------------------------------------- authentication
@@ -88,23 +114,21 @@ def test_token_parsing_ignores_weak_or_malformed_entries():
 
 def test_user_caller_requires_gateway_token_and_uuid():
     auth = Authenticator(TOKENS)
-    assert auth.user_caller(GW, USER_A).user_id == USER_A
+    assert auth.user_caller(f"Bearer {GW}", USER_A).user_id == USER_A
+    assert auth.user_caller(f"bearer  {GW} ", USER_A).user_id == USER_A
+    for bad in (None, "", GW, f"Basic {GW}", "Bearer wrong-token-0123456789", "Bearer"):
+        with pytest.raises(AuthError):
+            auth.user_caller(bad, USER_A)
     with pytest.raises(AuthError):
-        auth.user_caller(None, USER_A)
-    with pytest.raises(AuthError):
-        auth.user_caller("wrong-token-0123456789", USER_A)
-    with pytest.raises(AuthError):
-        auth.user_caller(GW, "not-a-uuid")
+        auth.user_caller(f"Bearer {GW}", "not-a-uuid")
     with pytest.raises(Forbidden):  # a service token cannot impersonate users
-        auth.user_caller(GM, USER_A)
+        auth.user_caller(f"Bearer {GM}", USER_A)
 
 
 def test_internal_routes_only_for_goal_management():
     auth = Authenticator(TOKENS)
-    assert auth.internal_caller(GM).service == "goal-management"
-    with pytest.raises(Forbidden):
-        auth.internal_caller(GW)
-    with pytest.raises(Forbidden):
-        auth.internal_caller(DM)
-    with pytest.raises(AuthError):
-        auth.internal_caller(None)
+    assert auth.internal_caller(f"Bearer {GM}").service == "goal-management"
+    # ICP-01 lists only 403 for identity failures on internal routes
+    for bad in (f"Bearer {GW}", f"Bearer {DM}", None, "Bearer nope-nope-nope-nope", GM):
+        with pytest.raises(Forbidden):
+            auth.internal_caller(bad)
