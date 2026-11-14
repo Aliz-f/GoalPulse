@@ -7,11 +7,18 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      GOAL_INTELLIGENCE_DB_PASSWORD: ${GOAL_INTELLIGENCE_DB_PASSWORD:?Set GOAL_INTELLIGENCE_DB_PASSWORD}
+      GOAL_MANAGEMENT_DB_PASSWORD: ${GOAL_MANAGEMENT_DB_PASSWORD:?Set GOAL_MANAGEMENT_DB_PASSWORD}
+      DISCOVERY_MONITORING_DB_PASSWORD: ${DISCOVERY_MONITORING_DB_PASSWORD:?Set DISCOVERY_MONITORING_DB_PASSWORD}
+      DATA_EVIDENCE_DB_PASSWORD: ${DATA_EVIDENCE_DB_PASSWORD:?Set DATA_EVIDENCE_DB_PASSWORD}
+      GOAL_EVALUATION_DB_PASSWORD: ${GOAL_EVALUATION_DB_PASSWORD:?Set GOAL_EVALUATION_DB_PASSWORD}
+      NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?Set NOTIFICATION_DB_PASSWORD}
+      AGENT_INTEGRATION_DB_PASSWORD: ${AGENT_INTEGRATION_DB_PASSWORD:?Set AGENT_INTEGRATION_DB_PASSWORD}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres/01-create-service-dbs.sql:/docker-entrypoint-initdb.d/01-create-service-dbs.sql:ro
+      - ./postgres/01-create-service-dbs.sh:/docker-entrypoint-initdb.d/01-create-service-dbs.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -33,6 +40,24 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
+  rabbitmq-init:
+    image: rabbitmq:4-management-alpine
+    restart: "no"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS}
+    volumes:
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        rabbitmqadmin --host rabbitmq --port 15672
+        --username "$$RABBITMQ_DEFAULT_USER" --password "$$RABBITMQ_DEFAULT_PASS"
+        definitions import --file /etc/rabbitmq/definitions.json
 volumes:
   postgres_data:
   rabbitmq_data:
