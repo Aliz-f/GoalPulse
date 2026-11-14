@@ -1,0 +1,61 @@
+"""D2-GI-04 HTTP layer. Needs FastAPI + httpx; skipped (NOT RUN) when they are missing."""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from conftest import USER_A, USER_B
+
+from goal_intelligence.auth import Authenticator
+from test_gi_compiler import PRODUCT_FLOW
+from test_gi_endpoints import GM, GW, TOKENS
+
+
+fastapi = pytest.importorskip("fastapi", reason="FastAPI not installed; HTTP layer NOT RUN")
+pytest.importorskip("httpx", reason="httpx not installed; HTTP layer NOT RUN")
+from fastapi.testclient import TestClient  # noqa: E402
+
+from goal_intelligence.api.app import create_app  # noqa: E402
+
+
+@pytest.fixture
+def client(service):
+    return TestClient(create_app(service=service, authenticator=Authenticator(TOKENS)))
+
+
+def as_user(user=USER_A):
+    return {"X-Service-Token": GW, "X-Authenticated-User-Id": user}
+
+
+def test_http_public_flow_and_status_codes(client):
+    r = client.post("/v1/goal-sessions", json={"initial_message": PRODUCT_FLOW[0]}, headers=as_user())
+    assert r.status_code == 201
+    draft = r.json()
+    sid = draft["session_id"]
+    for text in PRODUCT_FLOW[1:]:
+        r = client.post(f"/v1/goal-sessions/{sid}/messages",
+                        json={"message": text, "expected_revision": draft["revision"]}, headers=as_user())
+        assert r.status_code == 200
+        draft = r.json()
+    assert draft["ready_for_confirmation"] is True
+    r = client.post(f"/v1/goal-sessions/{sid}/messages", json={"message": "x", "expected_revision": 1}, headers=as_user())
+    assert r.status_code == 409 and r.json()["current_revision"] == draft["revision"]
+    assert client.get(f"/v1/goal-sessions/{sid}", headers=as_user(USER_B)).status_code == 404
+    assert client.get(f"/v1/goal-sessions/{sid}").status_code == 401
+    r = client.post("/v1/goal-sessions", json={"initial_message": "hi", "owner_user_id": USER_B}, headers=as_user())
+    assert r.status_code == 422  # extra fields refused, client cannot set the owner
+
+    # internal candidate: GM only
+    url = f"/internal/v1/goal-sessions/{sid}/candidate?expected_revision={draft['revision']}"
+    assert client.get(url, headers={"X-Service-Token": GW}).status_code == 403
+    assert client.get(url).status_code == 401
+    r = client.get(url, headers={"X-Service-Token": GM})
+    assert r.status_code == 200 and r.json() == draft
+    stale = f"/internal/v1/goal-sessions/{sid}/candidate?expected_revision=1"
+    assert client.get(stale, headers={"X-Service-Token": GM}).status_code == 409
+
+    body = {"goal_id": str(uuid.uuid4()), "expected_revision": draft["revision"]}
+    mc = f"/internal/v1/goal-sessions/{sid}/mark-confirmed"
+    assert client.post(mc, json=body, headers={"X-Service-Token": GM}).status_code == 204
+    assert client.post(mc, json=body, headers={"X-Service-Token": GM}).status_code == 204

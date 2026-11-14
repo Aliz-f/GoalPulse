@@ -1,0 +1,34 @@
+{
+  "session_id": "ae000000-0000-4000-8000-0000000000d1",
+  "owner_user_id": "ae000000-0000-4000-8000-00000000000a",
+  "revision": 5,
+  "state": "ready_for_confirmation",
+  "candidate_goal": {
+    "actions": {
+      "agent_handoff": "prepare_only",
+      "auto_purchase": false,
+      "notify_user": true
+    },
+    "criteria": {
+      "delivery_country": "FI",
+      "include_shipping_and_tax": true,
+      "kind": "product_purchase",
+      "max_total_eur_cents": 60000,
+      "product": {
+        "condition": "new",
+        "match_policy": "equivalent_allowed",
+        "query": "RTX 5070"
+      },
+      "quantity": 1
+    },
+    "goal_type": "product_purchase",
+    "monitoring": {
+      "frequency_minutes": 1440,
+      "max_evidence_age_minutes": 60
+    },
+    "title": "Buy RTX 5070 at or under EUR 600.00 delivered"
+  },
+  "missing_fields": [],
+  "next_question": null,
+  "ready_for_confirmation": true
+}
