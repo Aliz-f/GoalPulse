@@ -1,0 +1,44 @@
+R2-D4-01 — redacted recorded-test evidence summary
+Date: 2026-11-14
+Baseline commit: 57eef52
+Branch: feat/r2-d4-01-ge-runtime
+State tested: uncommitted GE work plus the preserved earlier Notification increment
+Mode: deterministic recorded tests; no chargeable/live provider requests
+
+Executed from repository root:
+/private/tmp/goalpulse-d4-venv/bin/python scripts/validate_contracts.py
+/private/tmp/goalpulse-d4-venv/bin/python -c 'import sys, runpy; sys.modules["readline"] = None; sys.argv = ["pytest", "-q", "-rs"]; runpy.run_module("pytest", run_name="__main__")'
+git diff --check
+
+Observed results:
+PASS 5 JSON Schemas + 13 examples
+PASS event routing for 4 event types
+PASS OpenAPI YAML with 7 frozen paths
+976 passed, 17 skipped, 1 warning in 3.52s
+PASS git diff --check
+
+Recorded scenarios covered by the passing suite:
+PASS signed service-JWT exact evaluation GET, scoped authorization, correlation
+PASS forged/user/expired/wrong-scope/duplicate-claim tokens rejected
+PASS missing costs, stock, condition proof and obsolete goal versions cannot verify
+PASS 30-minute product cap and stricter goal limit
+PASS 10-minute original-proof gate on verified intent/publication
+PASS GE-to-Notification separate-process canonical business-key agreement
+PASS manual ACK after durable decision; mandatory persistent confirmed publication
+PASS bounded retry decisions and journal failure after business commit, without new outcome
+PASS absent complete source binding and closed broker channels cannot claim readiness
+
+NOT RUN actual GE PostgreSQL tests: GOALPULSE_GE_TEST_DSN not configured
+NOT RUN actual RabbitMQ smoke: requires the GE test DB and GOALPULSE_GE_TEST_AMQP_URL
+NOT RUN deployed private service/Gateway auth and supervisor restart/deadline smoke
+NOT RUN production reverse subscription lookup: coordinated D1/D3 contract/binding pending
+Other skipped tests require DE/DM/GI/NS disposable PostgreSQL configuration.
+
+Environment notes:
+Default python entrypoints failed before checks because PyYAML/pytest are absent.
+The existing venv executed the checks; disabling native readline avoids an
+environment import crash and does not skip tests. The warning is the existing
+Starlette/httpx TestClient deprecation. Docker/psql are unavailable.
+
+This is a test-result summary, not a live-service log or release certification.
+No bearer tokens, DSNs, credentials, raw goals, transcripts or provider bodies are included.

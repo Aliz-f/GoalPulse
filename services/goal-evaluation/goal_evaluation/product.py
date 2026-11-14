@@ -37,7 +37,7 @@ class ProductPurchaseEvaluator:
     unknown; evidence text is never interpreted as structured permission/facts.
     """
 
-    version = 'product-v1.2'
+    version = 'product-v1.3-phase2'
 
     def __init__(self, contracts: Contracts):
         self.contracts = contracts
@@ -159,7 +159,8 @@ class ProductPurchaseEvaluator:
         add('seller_policy', seller, 'Exact source hostname policy: ' + (host or 'missing'))
         observed = datetime.fromisoformat(observation['observed_at'].replace('Z', '+00:00'))
         age = now - observed
-        fresh = timedelta(0) <= age <= timedelta(minutes=goal['monitoring']['max_evidence_age_minutes'])
+        fresh = timedelta(0) <= age <= timedelta(minutes=min(
+            goal['monitoring']['max_evidence_age_minutes'], 30))
         add('freshness', 'satisfied' if fresh else 'unknown',
             'Observation timestamp is within freshness window' if fresh else
             'Observation is stale or future-dated; request time does not refresh cached evidence')

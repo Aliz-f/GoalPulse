@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Callable, Protocol
 from uuid import NAMESPACE_URL, uuid5
@@ -10,7 +11,7 @@ from uuid import NAMESPACE_URL, uuid5
 from .consumer import PostgresTransaction, Store
 from .domain import Contracts, Dispatcher, Document
 from .processing import EvaluationContext, GoalReader, Runtime, Subscription, uuid_string
-from .offer_identity import offer_fingerprint as snapshot_fingerprint
+from .offer_identity import business_fingerprint, offer_fingerprint as snapshot_fingerprint
 
 
 def canonical(value: object) -> str:
@@ -38,15 +39,15 @@ def evaluation_fingerprint(result: Document, evaluator_version: str) -> str:
 def offer_fingerprint(result: Document, context: EvaluationContext) -> str:
     """Exclude capture IDs/time; repeated observations of the same offer dedup.
 
-    Keep full listing path/query: variants can be different offers. Seller is the
-    normalized source hostname, not an invented merchant identifier. Any changed
-    payable component creates a different offer, scoped to the immutable goal.
+    P0 uses the ADR-0003 business key, harmonized with Notification. Seller is
+    the normalized hostname; payable components and exact selected product
+    distinguish offers without capture IDs or tracking/listing URLs.
     """
     selected = set(result['candidate_observation_ids'])
     observations = [o for o in context.observations if o['observation_id'] in selected]
     if len(observations) != len(selected) or not selected:
         raise ValueError('Offer fingerprint requires every selected observation exactly once')
-    return snapshot_fingerprint(context.goal, observations)
+    return business_fingerprint(context.goal, observations)
 
 
 class EvaluationTransaction(Protocol):
@@ -54,10 +55,12 @@ class EvaluationTransaction(Protocol):
     def reserve_offer(self, result: Document, fingerprint: str, event_id: str) -> bool: ...
     def enqueue_event(self, event: Document) -> None: ...
     def get_evaluation(self, evaluation_id: str) -> Document | None: ...
+    def list_evaluations(self, goal_id: str, goal_version: int, limit: int) -> list[Document]: ...
+    def legacy_offer_reserved(self, result: Document, fingerprint: str) -> bool: ...
 
 
 class ImmutableEvaluationReader:
-    """Validated local read boundary, not an authenticated HTTP endpoint."""
+    """Validated immutable reads used by authenticated HTTP adapters."""
 
     def __init__(self, contracts: Contracts, store: Store):
         self.contracts, self.store = contracts, store
@@ -71,6 +74,22 @@ class ImmutableEvaluationReader:
                 if result['evaluation_id'] != evaluation_id:
                     raise ValueError('Stored evaluation identity mismatch')
             return copy.deepcopy(result)
+
+    def list_for_goal(self, goal_id: str, goal_version: int, limit: int) -> list[Document]:
+        uuid_string(goal_id)
+        if type(goal_version) is not int or goal_version < 1:
+            raise ValueError('Invalid goal version')
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError('Invalid evaluation history limit')
+        with self.store.transaction() as transaction:
+            results = transaction.list_evaluations(goal_id, goal_version, limit)
+            if not isinstance(results, list) or len(results) > limit:
+                raise ValueError('Invalid stored evaluation history')
+            for result in results:
+                self.contracts.validate('goal-evaluation', result)
+                if (result['goal_id'], result['goal_version']) != (goal_id, goal_version):
+                    raise ValueError('Stored evaluation history identity mismatch')
+            return copy.deepcopy(results)
 
 
 class VerificationGuard:
@@ -102,6 +121,11 @@ class VerificationGuard:
             recomputed['candidate_observation_ids'] != result['candidate_observation_ids']
         ):
             return False
+        selected = set(result['candidate_observation_ids'])
+        if any(not timedelta(0) <= now - datetime.fromisoformat(o['observed_at'].replace('Z', '+00:00')) <=
+               timedelta(minutes=min(context.goal['monitoring']['max_evidence_age_minutes'], 10))
+               for o in context.observations if o['observation_id'] in selected):
+            return False
         return True
 
 
@@ -114,8 +138,14 @@ class EvaluationSink:
     can still be persisted as historical information.
     """
 
-    def __init__(self, contracts: Contracts, guard: VerificationGuard, evaluator_version: str):
-        if not evaluator_version:
+    def __init__(self, contracts: Contracts, guard: VerificationGuard,
+                 evaluator_version: str | Mapping[str, str]):
+        if isinstance(evaluator_version, Mapping):
+            if (not evaluator_version or set(evaluator_version) - {'product_purchase', 'recurring_procurement'}
+                    or any(not isinstance(v, str) or not v for v in evaluator_version.values())):
+                raise ValueError('Explicit evaluator version per registered goal type required')
+            evaluator_version = dict(evaluator_version)
+        elif not isinstance(evaluator_version, str) or not evaluator_version:
             raise ValueError('An evaluator version is required')
         self.contracts, self.guard, self.evaluator_version = contracts, guard, evaluator_version
 
@@ -141,11 +171,19 @@ class EvaluationSink:
             raise ValueError('Evaluation references missing evidence')
         verified = self.guard.eligible(result, context)
         fingerprint = offer_fingerprint(result, context) if verified else None
-        if not transaction.insert_evaluation(result, evaluation_fingerprint(result, self.evaluator_version),
-                                             self.evaluator_version):
+        version = (self.evaluator_version if isinstance(self.evaluator_version, str) else
+                   self.evaluator_version.get(context.goal['goal_type']))
+        if not version:
+            raise ValueError('No persistence evaluator version for this goal type')
+        if not transaction.insert_evaluation(result, evaluation_fingerprint(result, version), version):
             return
         transaction.enqueue_event(self._event('goal.evaluated.v1', result, context.correlation_id))
         if fingerprint is not None:
+            selected = set(result['candidate_observation_ids'])
+            legacy = snapshot_fingerprint(context.goal, [o for o in context.observations
+                                                         if o['observation_id'] in selected])
+            if legacy != fingerprint and transaction.legacy_offer_reserved(result, legacy):
+                return
             verified_event = self._event('goal.opportunity_verified.v1', result, context.correlation_id)
             if transaction.reserve_offer(result, fingerprint, verified_event['event_id']):
                 transaction.enqueue_event(verified_event)
@@ -197,6 +235,14 @@ class PostgresEvaluationTransaction(PostgresTransaction):
         )
         return self.cursor.fetchone() is not None
 
+    def legacy_offer_reserved(self, result: Document, fingerprint: str) -> bool:
+        self.cursor.execute(
+            'SELECT 1 FROM offer_fingerprints f LEFT JOIN outbox o ON o.event_id=f.verification_event_id '
+            'WHERE f.goal_id=%s AND f.goal_version=%s AND f.fingerprint=%s AND '
+            "(f.notification_emitted OR f.verification_event_id IS NULL OR o.status IS DISTINCT FROM 'failed')",
+            (result['goal_id'], result['goal_version'], fingerprint))
+        return self.cursor.fetchone() is not None
+
     def enqueue_event(self, event: Document) -> None:
         self.cursor.execute('INSERT INTO outbox (event_id,event_json) VALUES (%s,%s::jsonb)',
                             (event['event_id'], canonical(event)))
@@ -208,6 +254,20 @@ class PostgresEvaluationTransaction(PostgresTransaction):
         if row is None:
             return None
         return copy.deepcopy(json.loads(row[0]) if isinstance(row[0], str) else row[0])
+
+    def list_evaluations(self, goal_id: str, goal_version: int, limit: int) -> list[Document]:
+        uuid_string(goal_id)
+        if type(goal_version) is not int or goal_version < 1:
+            raise ValueError('Invalid goal version')
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError('Invalid evaluation history limit')
+        self.cursor.execute(
+            'SELECT payload FROM evaluations WHERE goal_id=%s AND goal_version=%s '
+            'ORDER BY evaluated_at DESC,evaluation_id DESC LIMIT %s',
+            (goal_id, goal_version, limit),
+        )
+        return [copy.deepcopy(json.loads(row[0]) if isinstance(row[0], str) else row[0])
+                for row in self.cursor.fetchall()]
 
     def next_pending(self, now: datetime):
         self.cursor.execute(

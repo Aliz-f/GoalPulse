@@ -36,6 +36,8 @@ class EvidenceConsumer:
         self.contracts.validate("domain-event", event)
         if event["event_type"] != "evidence.updated.v1":
             raise ValueError("Goal Evaluation consumes only evidence.updated.v1")
+        if event['aggregate_id'] != event['payload']['source_id']:
+            raise ValueError('Evidence event aggregate/source mismatch')
         with self.store.transaction() as transaction:
             if not transaction.claim_event(event["event_id"]):
                 return False

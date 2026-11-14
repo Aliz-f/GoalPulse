@@ -41,7 +41,7 @@ def test_supported_preconditions_are_pure_and_prepare_only(inputs):
     before = copy.deepcopy(inputs)
     result = check(inputs)
     assert result.allowed
-    assert result.expires_at == NOW + timedelta(hours=1)
+    assert result.expires_at == NOW + timedelta(minutes=30)  # ADR-0003 product cap
     assert result.approval_required and not result.auto_execute
     assert result == check(inputs)
     assert inputs == before

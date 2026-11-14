@@ -1,6 +1,40 @@
 # goal-evaluation — GoalPulse service
 
-**Implementation status: evaluator, mock processing, PostgreSQL persistence and outbox relay adapters implemented; service not runnable yet.**
+**Implementation status: deterministic evaluators, PostgreSQL inbox/outbox,
+authenticated internal evaluation API, durable retry journal and Rabbit worker/
+confirmed-publisher composition implemented. Live integration remains gated.**
+
+Phase 2 `R2-D4-04` now registers recurring procurement in the same runtime, with
+per-goal-type evaluator versions and explicit missing/unknown basket coverage.
+Normalization remains unconfirmed in live profiles. The independent recorded
+runner exercises L/kg/pcs costs, worker replay and the saved-evaluation API:
+
+```bash
+python services/goal-evaluation/tests/procurement_recorded_smoke.py
+```
+
+Its verified basket uses explicit synthetic one-unit facts. The real café's
+larger quantities and quality requirements remain unknown under Observation v1.
+See [recurring procurement handoff](PROCUREMENT_PHASE2_HANDOFF.md) for acceptance
+evidence, policy limits and the D1/D3 integration requirements.
+
+Phase 2 `R2-D4-01` now supplies `api.create_app`, `auth.ServiceAuthorizer` and
+`runtime.build_runtime`, together with authenticated HTTP readers. Apply owned
+migrations 001..004 before running. The P0 product evaluator enforces
+min(goal age, 30 minutes), and verified event creation/publication additionally
+requires original proof no older than min(goal age, 10 minutes). Its business
+fingerprint now matches Notification's ADR-0003 product policy.
+
+Production startup still needs an approved complete goal-version-to-sources
+lookup and D1's service identity/private process configuration. The runtime
+rejects a missing lookup; it never assumes the trigger is the goal's only source.
+See
+[Phase 2 handoff and interface proposal](PHASE2_HANDOFF.md) for the exact gap,
+implemented scope and remaining acceptance gates.
+
+The sections below retain the Phase 1 implementation record. The Phase 2
+handoff describes the current adapters, dependencies, migrations and policy
+changes, superseding earlier statements that these were not implemented.
 
 The `goal_evaluation` package provides a pure `GoalEvaluator` protocol, strict
 dispatch and local frozen-schema validation, and an injectable evidence-event
@@ -30,9 +64,9 @@ For local imports, add `services/goal-evaluation` to `PYTHONPATH` and construct
 `Contracts(Path("contracts/schemas"))`. Deployment packaging must include the
 unchanged frozen schema artifacts and supply their explicit directory.
 
-No new environment variables or production dependencies are introduced. The
-existing `jsonschema` dependency is required. A PostgreSQL driver, runtime
-packaging and broker adapter still require coordinated dependency decisions.
+No new environment variables or repository-wide frameworks are introduced.
+The service manifest declares JSON Schema, FastAPI/Pydantic, psycopg, pika and
+Uvicorn. D1 still owns runtime packaging and deployed connection configuration.
 Live database/broker behavior is not established by the unit test doubles.
 
 ### Product evaluator (D4-GE-03)
@@ -87,21 +121,22 @@ See [contract gap and approval request](CONTRACT_GAPS.md). D4-GE-03 cannot be
 declared fully accepted until Developer 1 coordinates the missing evidence
 contract/policy with affected owners. No existing fixture was changed.
 
-ICP-01/08 are accepted upstream under ADR-0002. D4-GE-02 still needs concrete
-authenticated clients for those approved operations; local adapters remain in use. D4-GE-04 adapters below supply result writes, lifecycle
-checks, fingerprints and confirmed-publication orchestration. Notification and Agent
-Integration cores are included separately; live wiring remains incomplete. No external
-interface, routing key or contract has changed.
+ICP-01/08 are accepted upstream under ADR-0002. Phase 2 supplies bounded
+authenticated HTTP clients for the approved operations, the internal immutable
+evaluation GET, and the owner-scoped current-version evaluation-history handler
+from the accepted Gateway extension. D1 still owns the concrete token issuer,
+Gateway forwarding and private deployment. D4-GE-04 supplies result writes,
+lifecycle checks, fingerprints and confirmed-publication orchestration. No frozen
+v1 interface or routing key has changed.
 
-### Mock source/evidence processing (D4-GE-02)
+### Source/evidence processing and runtime adapters (D4-GE-02 / R2-D4-01)
 
 `processing.EvidenceProcessor` plugs into `EvidenceConsumer` as its `process`
-callable. Inject mock `SubscriptionReader`, `GoalReader` and `EvidenceReader`,
-the validated dispatcher, a UTC clock, and a transaction-scoped result sink.
-`Subscription` and `Runtime` are local adapter values, not approved wire DTOs.
-No private HTTP path, service authentication implementation, or external
-producer/consumer interface is introduced. Map them to an accepted contract
-using accepted ICP-01/ADR-0002 and the D1/D3 implementation handoff.
+callable. `runtime.build_runtime` binds the approved GM, DM and DE HTTP reads,
+the validated dispatcher, a UTC clock, transaction-scoped result sink, durable
+retry journal and RabbitMQ adapter. Tests may inject recorded transports;
+`demo` never falls back to fixtures. `Subscription` and `Runtime` remain local
+validated adapter values rather than new wire DTOs.
 
 For each evidence event, processing resolves all subscribed goal versions,
 deduplicates subscriptions, reads authoritative runtime, skips inactive/obsolete
@@ -119,9 +154,9 @@ Every reader receives the original correlation ID. Only explicit
 0.1/0.2-second exponential delays, configurable up to five attempts and a
 one-second delay cap. Validation and permission failures are not retried here.
 Reader results are bounded (1,000 entries by default); exceeding the bound
-fails instead of silently omitting goals. Future transport adapters must enforce
-timeouts and bounded pagination. The broker worker must separately cap delivery
-attempts and dead-letter permanent failures; it is not implemented yet.
+fails instead of silently omitting goals. The Phase 2 transport enforces request
+deadlines, response-size limits and bounded pagination. `EvaluationWorker` uses
+manual ACK, durable retry leases and the configured DLX/DLQ for terminal failures.
 
 The sink receives `(evaluation, EvaluationContext, transaction)` and must perform
 only writes through that transaction. All goals and the inbox claim commit
@@ -131,9 +166,9 @@ goal, observations and original correlation ID for the persistence checks below.
 The runtime check is a snapshot, not an atomic lock across services: downstream
 consumers must recheck active/latest state, and publication must revalidate
 freshness. No running PostgreSQL/RabbitMQ or real HTTP integration is proven by
-these mock tests. There are no new migrations, dependencies or environment
-variables for this part. Live D4-GE-02 acceptance still needs the concrete D4
-clients, D3 services and end-to-end verification; ICP-01 approval is complete.
+these recorded tests. Phase 2 adds migration 004 and the declared service runtime
+dependencies, but no new environment variable. Live acceptance still needs D1's
+private deployment/auth binding, D3 services and end-to-end verification.
 
 ### Persistence and outgoing events (D4-GE-04)
 
@@ -172,29 +207,32 @@ not delivery to the user. A `verification_event_id` binds the reservation to its
 outbox row; a terminal, unconfirmed row may be replaced by a later fresh verified
 capture. Pending or confirmed reservations still suppress duplicate intents.
 
-Apply `001_initial.sql`, `002_immutable_evaluations.sql` and
-`003_offer_publication_tracking.sql` once, in order, to the owned PostgreSQL
-database. The third migration is required before running this version of the
-sink/publisher. It retains legacy reservations without guessing whether they
-were published; any existing legacy data needs an outbox audit before manual
-repair. On an initialized DB, apply only the new unapplied migration:
+Apply `001_initial.sql`, `002_immutable_evaluations.sql`,
+`003_offer_publication_tracking.sql` and `004_processing_journal.sql` once, in
+order, to the owned PostgreSQL database. The third migration tracks verified
+publication and the fourth adds the durable consumer retry/rejection journal.
+Legacy reservations still require an outbox audit before manual repair. On an
+initialized pre-Phase-2 DB, apply each remaining migration in order:
 
 ```bash
 psql --dbname='<goal-evaluation service DSN>' --file=services/goal-evaluation/migrations/003_offer_publication_tracking.sql
+psql --dbname='<goal-evaluation service DSN>' --file=services/goal-evaluation/migrations/004_processing_journal.sql
 ```
 
-The second migration rejects updates/deletes to
-evaluations and condition rows. `ImmutableEvaluationReader.get(id)` performs a
-validated local read and returns a detached result or None. It exposes no HTTP
-route; implementing it requires wiring the accepted ICP-01 operation to D1 service identity.
+The second migration rejects updates/deletes to evaluations and condition rows.
+`ImmutableEvaluationReader.get(id)` returns one detached immutable result;
+`list_for_goal(id, current_version, limit)` returns newest-first current-version
+history. `api.create_app` exposes the accepted authenticated internal GET and the
+owner-scoped Gateway-extension handler. D1 supplies the concrete authentication
+dependencies and never routes the internal path to browsers.
 
 `outbox.OutboxPublisher.run_once()` locks one due row with `FOR UPDATE SKIP LOCKED`,
-validates it, and calls an injected broker's `publish_confirmed` with
+validates it, and calls `ConfirmedPublisher.publish_confirmed` with
 `goalpulse.events`, the exact routing key and persistent message flag. Marking
-published occurs only after a positive confirmation. The broker adapter must
-enable publisher confirms, handle unroutable returns and enforce deadlines;
-durable topic exchange, queues and bindings remain infrastructure prerequisites.
-No concrete RabbitMQ client or worker startup is supplied here.
+published occurs only after a positive confirmation. The adapter enables confirms,
+uses mandatory persistent publication and retires the channel on its bounded
+confirmation deadline. Durable queues, DLX bindings, connection supervision and
+the process entrypoint remain D1 deployment responsibilities.
 
 Wire `PublicationGuard(contracts, guard, goals, evidence)` as the publisher's
 eligibility callback. Before verified publication it reloads immutable data,
@@ -228,12 +266,12 @@ policy is used by all three D4 services. No URL is fetched or resolved. Opaque
 secrets under arbitrary unrelated parameter names still require upstream
 provenance controls; unknown values cannot automatically be classified as secrets.
 
-No production dependency or environment variable was introduced. Live PostgreSQL
-migrations/concurrency, RabbitMQ restart recovery and authenticated HTTP reads
-remain **NOT RUN / not implemented**: this environment lacks PostgreSQL/Docker
-tools and concrete D4 transport wiring are unavailable. The internal interface is accepted. Unit tests use transaction and
-broker doubles for rollback, replay, retry, confirm loss, immutability and stale
-suppression. D4-GE-04 is not fully accepted operationally. Product reliability
+The service requirements declare the existing approved FastAPI, Pydantic,
+psycopg, pika and Uvicorn stack; no new repository-wide framework is introduced.
+Live PostgreSQL migrations/concurrency, RabbitMQ restart recovery and deployed
+Gateway/service authentication remain **NOT RUN** in the recorded environment.
+Unit tests use transaction and broker doubles for rollback, replay, retry,
+confirm loss, immutability and stale suppression. D4-GE-04 is not fully accepted operationally. Product reliability
 coverage and fixes are documented in [D4-GE-06 test coverage](TEST_COVERAGE.md),
 including operational checks still NOT RUN. D1/D3 integration remains unwired
 against the accepted internal contract. Fixture-confirmed procurement/basket checks are described below; the
