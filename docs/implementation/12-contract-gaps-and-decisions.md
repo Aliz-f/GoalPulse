@@ -16,6 +16,7 @@
 | ICP-10 | Duplicate opportunity identity not in event | Dedup notification/AI by `goal_id + version + canonical seller/product/offer snapshot fingerprint`, fetched from Evaluation/Evidence. Store stable fingerprint and unique index. | D4 | P0 |
 | ICP-11 | Unclear credits/recheck and scheduling | D3 imposes bounded rate, quotas and reasonable schedule; Context.dev monitor initial run baseline ≠ event; initial direct scrape always executed. | D3 + D1 | P0 |
 | ICP-12 | Source authentication / SSRF | D3 validates public HTTPS URLs, DNS + redirect destinations; only signed provider callbacks, no client-provided arbitrary webhook URLs. | D3 + D1 | P0 |
+| ICP-13 | Observation.v1 cannot evidence product condition or arbitrary required attributes | Do not change frozen v1. In Phase 1, a missing condition is `unknown`, never verified; `Observation.model` may be used only under an explicitly agreed exact-model mapping. After Phase 1, review a versioned Observation contract with typed product condition and extensible, validated attributes, then coordinate DE producer, GE consumer, internal API, fixtures, and migration. | D1 + D3 + D4 (+ D2 if draft attribute mapping changes) | Deferred after Phase 1 |
 
 ## Approval procedure
 

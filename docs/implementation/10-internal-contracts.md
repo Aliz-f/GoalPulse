@@ -1,6 +1,6 @@
-# Internal API integration contracts — PROPOSED, review required (ICP-01)
+# Internal API integration contracts — accepted under ICP-01
 
-The frozen `contracts/openapi/gateway.v1.yaml` covers **public** endpoints only. The system cannot integrate correctly without internal authenticated reads. `contracts/openapi/internal.proposed.v1.yaml` is a machine-readable **proposal**. Until accepted, coding agents use mock clients and do not assume these paths are approved.
+The frozen `contracts/openapi/gateway.v1.yaml` covers **public** endpoints only. The system cannot integrate correctly without internal authenticated reads. `contracts/openapi/internal.proposed.v1.yaml` is the accepted machine-readable internal contract under ADR-0002; its historical filename is retained for compatibility.
 
 ## Rules common to every internal endpoint
 
@@ -22,6 +22,17 @@ The frozen `contracts/openapi/gateway.v1.yaml` covers **public** endpoints only.
 - GET `/internal/v1/goals/{goal_id}/runtime`: `{goal_id, owner_user_id, current_version, lifecycle}`.
 - GET `/internal/v1/goals/active?cursor=&limit=`: active goal ID/version pages used for source subscription reconciliation. Rate-limit and avoid leaking owner details.
 - These **runtime** reads must be made at verification/notification time to reject paused or obsolete goal versions.
+
+Goal Management authorizes these operations with separate service-token scopes:
+
+| Scope | Allowed operation | Intended consumers |
+|---|---|---|
+| `gm.goal-version.read` | Immutable version read | Discovery & Monitoring, Goal Evaluation |
+| `gm.runtime.read` | Current lifecycle/version read | Goal Evaluation, Notification, Agent Integration |
+| `gm.active.read` | Active-goal reconciliation page | Discovery & Monitoring |
+
+A valid service UUID subject is required in addition to the operation scope;
+the generic `gm.read` scope grants no access.
 
 ## DM → GE: source fan-out
 
@@ -50,8 +61,8 @@ The frozen `contracts/openapi/gateway.v1.yaml` covers **public** endpoints only.
 
 ## Approval checklist
 
-- [ ] Dev 1 verifies JWT principal and service-auth model.
-- [ ] Dev 2 confirms candidate read/revision and frontend error model.
-- [ ] Dev 3 confirms source fan-out and extraction DTO can carry missing price without fake Observation.
-- [ ] Dev 4 confirms evaluation/notification/agent read interfaces and stable offer dedup.
-- [ ] Developer 1 approves `contracts/openapi/internal.proposed.v1.yaml` in a protected PR, records ADR and contract tests.
+- [x] Dev 1 verifies JWT principal and service-auth model.
+- [x] Dev 2 confirms candidate read/revision and frontend error model.
+- [x] Dev 3 confirms source fan-out and extraction DTO can carry missing price without fake Observation.
+- [x] Dev 4 confirms evaluation/notification/agent read interfaces and stable offer dedup.
+- [x] Developer 1 approved `contracts/openapi/internal.proposed.v1.yaml`; ADR-0002 and contract tests record the acceptance.

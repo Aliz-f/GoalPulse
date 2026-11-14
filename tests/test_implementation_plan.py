@@ -52,11 +52,13 @@ def test_all_dependencies_exist_and_acyclic():
         visit(x)
 
 
-def test_internal_proposal_is_valid_openapi_draft():
+def test_accepted_internal_api_is_valid_openapi_contract():
     p=ROOT/'contracts/openapi/internal.proposed.v1.yaml'
     d=yaml.safe_load(p.read_text(encoding='utf-8'))
     assert d['openapi']=='3.1.0'
-    assert 'proposed' in d['info']['version']
+    assert d['info']['version']=='1.0.0'
+    assert 'proposal' not in d['info']['title'].lower()
+    assert d['security']==[{'ServiceBearer': []}]
     assert len(d['paths'])>=10
     methods={'get','post','put','patch','delete'}
     assert all(any(k in obj for k in methods) for obj in d['paths'].values())
@@ -66,6 +68,14 @@ def test_internal_proposal_is_valid_openapi_draft():
             assert m in methods
             assert spec.get('operationId'),path
             assert spec.get('responses'),path
+
+
+def test_internal_contract_acceptance_is_recorded():
+    decisions=(ROOT/'docs/implementation/DECISIONS.md').read_text(encoding='utf-8')
+    adr=(ROOT/'docs/adr/0002-internal-api-and-service-auth-proposal.md').read_text(encoding='utf-8')
+    assert 'ICP-01 | Accepted:' in decisions
+    assert 'ICP-08 | Accepted:' in decisions
+    assert '**Status:** Accepted' in adr
 
 
 def test_public_extension_proposal_not_replacing_frozen_gateway():
