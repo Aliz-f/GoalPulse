@@ -154,8 +154,8 @@ changes; verify existing v1 fixtures still validate.
   do not guess old monetary facts or rewrite immutable evaluations.
 - D1 binds the already accepted Phase 2 extension to authenticated Gateway
   forwarding; the D4 handler must not be exposed directly.
-- D3 checker implementation and reproducible provenance are required before
-  claiming live checked-evidence acceptance.
+- D3's implemented checker must be bound in the deployed private stack and its
+  reproducible provenance verified before claiming live checked-evidence acceptance.
 
 The P0 API tests verify real signed service JWTs and the exact persisted DTO.
 Live DB/broker, restart and deployed two-service auth smoke remain **NOT RUN**.
@@ -191,7 +191,7 @@ The next P1 task stays gated on a stable real P0 path.
 | Missing complete source lookup prevents startup/readiness | PASS unit | Required callback, migration probes, closed broker channels |
 | PostgreSQL recorded-worker persistence/restart | NOT RUN | GOALPULSE_GE_TEST_DSN absent; Docker/psql unavailable |
 | Rabbit + DB confirmed outbox, manual ACK and replay | NOT RUN | Requires disposable DB plus GOALPULSE_GE_TEST_AMQP_URL |
-| Actual DM reverse lookup / D3 checker / D1 private deployment | NOT RUN | Coordinated bindings and live operational evidence pending |
+| Actual DM reverse lookup / deployed D3 checker binding / D1 private deployment | NOT RUN | Coordinated bindings and live operational evidence pending |
 
 Root commands were executed again. Default `python` still lacks PyYAML/pytest;
 using the existing venv and readline workaround above:
