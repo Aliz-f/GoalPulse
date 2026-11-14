@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { Notice } from "@/components/Icons";
 import { getApi, sessionCache, type Turn } from "@/lib/api";
 import { adviceFor } from "@/lib/api/errors";
 
@@ -73,9 +74,9 @@ export function NewGoalForm() {
         ))}
       </div>
       {error && (
-        <p role="alert" className="notice notice-error">
+        <Notice tone="error">
           {error}
-        </p>
+        </Notice>
       )}
       <div className="actions">
         <button type="submit" className="primary" disabled={!valid || busy}>

@@ -1,9 +1,11 @@
 "use client";
 
+import { Send, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Icon, Notice } from "@/components/Icons";
 import { DraftSummary } from "@/components/DraftSummary";
 import { getApi, sessionCache, type Turn } from "@/lib/api";
 import { adviceFor } from "@/lib/api/errors";
@@ -13,7 +15,7 @@ import { formatTimestamp } from "@/lib/format";
 import { isUnsupported, labelForField, summarizeCandidate } from "@/lib/summary";
 
 type Busy = null | "load" | "send" | "confirm";
-type Notice = { kind: "error" | "conflict"; text: string } | null;
+type NoticeState = { kind: "error" | "conflict"; text: string } | null;
 
 const MAX_CHARS = 2000;
 
@@ -26,7 +28,7 @@ export function SessionView() {
   const [turns, setTurns] = useState<Turn[]>(cached?.turns ?? []);
   const [busy, setBusy] = useState<Busy>(cached ? null : "load");
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<Notice>(null);
+  const [notice, setNotice] = useState<NoticeState>(null);
   const [text, setText] = useState("");
   const [goal, setGoal] = useState<GoalSpec | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -119,9 +121,9 @@ export function SessionView() {
   if (loadError) {
     return (
       <div className="card">
-        <p role="alert" className="notice notice-error">
+        <Notice tone="error">
           {loadError}
-        </p>
+        </Notice>
         <Link href="/">Start a new goal</Link>
       </div>
     );
@@ -151,22 +153,22 @@ export function SessionView() {
         </ol>
 
         {unsupported && (
-          <p className="notice notice-info">
+          <Notice tone="info">
             GoalPulse can&apos;t monitor this kind of goal yet. It works for a product you want to buy, or monthly supplies
             for a business.
-          </p>
+          </Notice>
         )}
         {stillNeeded.length > 0 && !unsupported && (
           <p className="hint">Still needed: {stillNeeded.map(labelForField).join(", ")}</p>
         )}
         {notice && (
-          <p role="alert" className={`notice notice-${notice.kind === "conflict" ? "warning" : "error"}`}>
+          <Notice tone={notice.kind === "conflict" ? "warning" : "error"}>
             {notice.text}
-          </p>
+          </Notice>
         )}
 
         {closed ? (
-          <p className="notice notice-info">This draft is {draft.state} and can&apos;t be changed.</p>
+          <Notice tone="info">This draft is {draft.state} and can&apos;t be changed.</Notice>
         ) : (
           <>
             {ready && (
@@ -176,7 +178,13 @@ export function SessionView() {
                   Monitoring starts only for exactly what&apos;s in the summary (revision {draft.revision}). GoalPulse
                   will notify you about verified offers and prepare the details — it never places an order.
                 </p>
-                <button type="button" className="primary" onClick={() => void confirm()} disabled={busy !== null}>
+                <button
+                  type="button"
+                  className="primary with-icon"
+                  onClick={() => void confirm()}
+                  disabled={busy !== null}
+                >
+                  <Icon icon={ShieldCheck} />
                   {busy === "confirm" ? "Confirming…" : `Confirm revision ${draft.revision} and start monitoring`}
                 </button>
               </div>
@@ -212,7 +220,8 @@ export function SessionView() {
                     Scripted reply: {suggestion}
                   </button>
                 )}
-                <button type="submit" disabled={!text.trim() || busy !== null}>
+                <button type="submit" className="with-icon" disabled={!text.trim() || busy !== null}>
+                  <Icon icon={Send} />
                   {busy === "send" ? "Sending…" : "Send"}
                 </button>
               </div>

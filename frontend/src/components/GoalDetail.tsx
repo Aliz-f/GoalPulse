@@ -1,9 +1,11 @@
 "use client";
 
+import { ArrowLeft, Ban, Check, Pause, Play, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { Icon, Notice } from "@/components/Icons";
 import { DraftSummary } from "@/components/DraftSummary";
 import { LifecycleBadge, OpportunityStatus } from "@/components/GoalStatus";
 import { getApi } from "@/lib/api";
@@ -12,6 +14,8 @@ import type { GoalSpec, GoalSummary, LifecycleAction } from "@/lib/contracts";
 import { formatTimestamp } from "@/lib/format";
 import { ACTION_LABEL, NEEDS_CONFIRMATION, allowedActions } from "@/lib/goals";
 import { summarizeCandidate } from "@/lib/summary";
+
+const ACTION_ICON: Record<LifecycleAction, LucideIcon> = { pause: Pause, resume: Play, complete: Check, cancel: Ban };
 
 type Load =
   | { status: "loading" }
@@ -64,9 +68,9 @@ export function GoalDetail() {
   if (state.status === "error") {
     return (
       <div className="card">
-        <p role="alert" className="notice notice-error">
+        <Notice tone="error">
           {state.message}
-        </p>
+        </Notice>
         <Link href="/goals">Back to my goals</Link>
       </div>
     );
@@ -79,7 +83,10 @@ export function GoalDetail() {
     <div className="session">
       <section aria-label="Status">
         <p>
-          <Link href="/goals">← My goals</Link>
+          <Link href="/goals" className="with-icon">
+            <Icon icon={ArrowLeft} />
+            My goals
+          </Link>
         </p>
         <div className="goal-card-head">
           <h1>{spec.title}</h1>
@@ -94,13 +101,13 @@ export function GoalDetail() {
             <OpportunityStatus summary={summary} showDetail />
           </div>
         ) : (
-          <p className="notice notice-info">Status isn&apos;t available for this goal right now.</p>
+          <Notice tone="info">Status isn&apos;t available for this goal right now.</Notice>
         )}
 
         {notice && (
-          <p role="alert" className="notice notice-error">
+          <Notice tone="error">
             {notice}
-          </p>
+          </Notice>
         )}
 
         {actions.length > 0 && (
@@ -109,10 +116,11 @@ export function GoalDetail() {
               <button
                 key={a}
                 type="button"
-                className={armed === a ? "danger" : undefined}
+                className={armed === a ? "danger with-icon" : "with-icon"}
                 disabled={pending !== null}
                 onClick={() => void run(a)}
               >
+                <Icon icon={ACTION_ICON[a]} />
                 {pending === a ? "Saving…" : armed === a ? `Yes, ${ACTION_LABEL[a].toLowerCase()}` : ACTION_LABEL[a]}
               </button>
             ))}

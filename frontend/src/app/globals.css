@@ -494,3 +494,55 @@ button.danger {
   text-align: right;
   margin: 0.75rem 0 0;
 }
+
+/* icons (Lucide, inline SVG) */
+.icon {
+  flex-shrink: 0;
+}
+
+.with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.notice > .icon {
+  margin-top: 0.15rem;
+}
+
+.notice-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.notice-error > .icon {
+  color: var(--error-border);
+}
+
+.notice-warning > .icon {
+  color: var(--warning-border);
+}
+
+.notice-info > .icon {
+  color: var(--info-border);
+}
+
+.tone-positive .icon {
+  color: #2e8b57;
+}
+
+.nav .with-icon {
+  gap: 0.3rem;
+}

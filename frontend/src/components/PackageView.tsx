@@ -1,9 +1,11 @@
 "use client";
 
+import { ArrowLeft, Braces, Copy, ExternalLink, Package } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { Icon, Notice } from "@/components/Icons";
 import { Icp02Pending } from "@/components/Icp02Pending";
 import { ApiError, adviceFor } from "@/lib/api/errors";
 import { getProposedApi } from "@/lib/api/proposed";
@@ -62,9 +64,9 @@ export function PackageView() {
   if (state.status === "error") {
     return (
       <div className="card">
-        <p role="alert" className="notice notice-error">
+        <Notice tone="error">
           {state.message}
-        </p>
+        </Notice>
         <Link href="/notifications">Back to notifications</Link>
       </div>
     );
@@ -81,13 +83,19 @@ export function PackageView() {
   return (
     <article className="package">
       <p>
-        <Link href="/notifications">← Notifications</Link>
+        <Link href="/notifications" className="with-icon">
+          <Icon icon={ArrowLeft} />
+          Notifications
+        </Link>
       </p>
-      <h1>Prepared purchase</h1>
-      <p className="notice notice-info">
+      <h1 className="with-icon">
+        <Icon icon={Package} size={24} />
+        Prepared purchase
+      </h1>
+      <Notice tone="info">
         <strong>Not ordered.</strong> {NOT_ORDERED.replace("Nothing has been ordered. ", "")}
-      </p>
-      <p className="notice notice-warning">{RECHECK}</p>
+      </Notice>
+      <Notice tone="warning">{RECHECK}</Notice>
       <p className="hint">
         Prepared <time dateTime={pkg.created_at} title={`${pkg.created_at} (UTC)`}>{formatTimestamp(pkg.created_at)}</time> ·
         valid until <time dateTime={pkg.expires_at} title={`${pkg.expires_at} (UTC)`}>{formatTimestamp(pkg.expires_at)}</time>
@@ -114,7 +122,9 @@ export function PackageView() {
                 <td>
                   {r.href ? (
                     <a href={r.href} target="_blank" rel="noopener noreferrer nofollow">
-                      {r.seller} ↗
+                      {r.seller}
+                      <Icon icon={ExternalLink} size={14} />
+                      <span className="visually-hidden"> (opens in a new tab)</span>
                     </a>
                   ) : (
                     <span title={r.sourceText}>{r.seller} (link unavailable)</span>
@@ -135,10 +145,12 @@ export function PackageView() {
       </div>
 
       <div className="actions actions-start">
-        <button type="button" onClick={() => void doCopy("text")}>
+        <button type="button" className="with-icon" onClick={() => void doCopy("text")}>
+          <Icon icon={Copy} />
           Copy details
         </button>
-        <button type="button" onClick={() => void doCopy("json")}>
+        <button type="button" className="with-icon" onClick={() => void doCopy("json")}>
+          <Icon icon={Braces} />
           Copy as JSON
         </button>
         <Link href={`/goals/${pkg.goal_id}`}>View goal</Link>

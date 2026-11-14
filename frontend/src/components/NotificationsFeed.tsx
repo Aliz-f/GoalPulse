@@ -1,8 +1,10 @@
 "use client";
 
+import { Package } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { Icon, Notice } from "@/components/Icons";
 import { Icp02Pending } from "@/components/Icp02Pending";
 import { adviceFor } from "@/lib/api/errors";
 import { getProposedApi } from "@/lib/api/proposed";
@@ -46,7 +48,7 @@ export function NotificationsFeed() {
   if (state.status === "loading") return <p className="hint">Loading notifications…</p>;
   if (state.status === "error") {
     return (
-      <div role="alert" className="notice notice-error">
+      <Notice tone="error">
         {state.message}{" "}
         <button
           type="button"
@@ -58,7 +60,7 @@ export function NotificationsFeed() {
         >
           Try again
         </button>
-      </div>
+      </Notice>
     );
   }
   if (state.items.length === 0) {
@@ -73,9 +75,9 @@ export function NotificationsFeed() {
   return (
     <>
       {error && (
-        <p role="alert" className="notice notice-error">
+        <Notice tone="error">
           {error}
-        </p>
+        </Notice>
       )}
       <ul className="feed">
         {state.items.map((n) => (
@@ -94,9 +96,11 @@ export function NotificationsFeed() {
             <div className="actions actions-start">
               {n.action_package_id && (
                 <Link
+                  className="with-icon"
                   href={`/packages/${n.action_package_id}`}
                   onClick={() => !n.is_read && void markRead(n.notification_id)}
                 >
+                  <Icon icon={Package} />
                   View prepared purchase
                 </Link>
               )}

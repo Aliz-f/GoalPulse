@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { Notice } from "@/components/Icons";
 import { LifecycleBadge, OpportunityStatus } from "@/components/GoalStatus";
 import { getApi } from "@/lib/api";
 import { adviceFor } from "@/lib/api/errors";
@@ -48,7 +49,7 @@ export function GoalsList() {
       {state.status === "loading" && <p className="hint">Loading your goals…</p>}
 
       {state.status === "error" && (
-        <div role="alert" className="notice notice-error">
+        <Notice tone="error">
           {state.message}{" "}
           <button
             type="button"
@@ -60,7 +61,7 @@ export function GoalsList() {
           >
             Try again
           </button>
-        </div>
+        </Notice>
       )}
 
       {state.status === "ok" && state.goals.length === 0 && (
