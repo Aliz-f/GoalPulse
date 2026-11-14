@@ -146,6 +146,8 @@ class ScrapeResult:
     markdown: Output
     credits_consumed: int | None = None
     request_attempts: int = 1
+    requested_at: datetime | None = None
+    provider_observed_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -248,6 +250,10 @@ class ContextProvider:
 
     def scrape(self, url: str) -> ScrapeResult:
         target = public_https_url(url, self._resolver)
+        requested_at = self._clock()
+        if requested_at.utcoffset() is None:
+            raise ValueError("Clock must be timezone aware")
+        requested_at = requested_at.astimezone(timezone.utc)
         result = self._request("POST", "/v1/web/scrape", {
             "url": target, "formats": {"product": True, "markdown": True},
             "sharedParams": {"mainContentOnly": True}, "maxAgeMs": 0,
@@ -256,6 +262,8 @@ class ContextProvider:
         if fetched_at.utcoffset() is None:
             raise ValueError("Clock must be timezone aware")
         fetched_at = fetched_at.astimezone(timezone.utc)
+        if fetched_at < requested_at:
+            raise ProviderError("INVALID_CAPTURE_METADATA")
         final_url = public_https_url(result.get("url", target), self._resolver)
         cache = result.get("cache_metadata")
         age = cache.get("age_ms") if isinstance(cache, dict) else None
@@ -281,7 +289,7 @@ class ContextProvider:
             credits = None
         return ScrapeResult(final_url, request_id, fetched_at, age, observed_at,
                             output("product", dict), output("markdown", str), credits,
-                            getattr(result, "request_attempts", 1))
+                            getattr(result, "request_attempts", 1), requested_at=requested_at)
 
     def create_monitor(self, *, name: str, url: str, instructions: str | None = None,
                        webhook_url: str | None = None, frequency_minutes: int = 1440) -> MonitorCreated:

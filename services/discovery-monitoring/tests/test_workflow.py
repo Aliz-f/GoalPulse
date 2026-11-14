@@ -39,6 +39,9 @@ class MemoryRegistry:
             or (kwargs["lifecycle"] == "active" and link[1] == kwargs["current_version"])
         }
 
+    def suspend(self, goal_id):
+        self.links = {link for link in self.links if link[0] != goal_id}
+
 
 def setup_worker(*, active=True, product_success=True):
     goal = json.loads((ROOT / "contracts/examples/goal-spec.product.json").read_text(encoding="utf-8"))
@@ -161,9 +164,8 @@ def test_recurring_procurement_discovery_balances_source_budget_across_items():
         {"results": [{"url": "https://milk.example/one"}, {"url": "https://milk.example/two"}]},
     ]
     now = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
-    provider.scrape.return_value = ScrapeResult(
-        "https://example.com/item", "request", now, 0, now,
-        Output(True, {}), Output(True, "fixture"),
+    provider.scrape.side_effect = lambda url: ScrapeResult(
+        url, "request", now, 0, now, Output(True, {}), Output(True, "fixture"),
     )
     registry, sink = MemoryRegistry(), Mock()
     worker = DiscoveryWorker(reader, provider, registry, sink,

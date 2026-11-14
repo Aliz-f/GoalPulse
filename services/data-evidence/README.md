@@ -42,13 +42,15 @@ authoritative JSON schemas supplied through an explicit
 - PostgreSQL constraints prevent duplicate fingerprints and duplicate outbox
   records for an observation. Row triggers reject UPDATE/DELETE on observations,
   provenance and attempts. Deployment credentials must also disallow TRUNCATE/DDL.
-- The storage layer preserves `unverified`/`checked`/`disputed`; it never upgrades
-  trust or evaluates goal satisfaction. Only future trusted normalizer code may
-  supply checked candidates after corroboration; callers cannot submit HTTP here.
+- Ingestion preserves `unverified`/`disputed` and rejects a private caller's
+  `checked` candidate with `CALLER_CHECKED`. HTTP suggestions are retained in
+  provenance but enter unverified (or disputed), never checked. Only the internal
+  ICP-09 checker can append a checked snapshot; it never evaluates satisfaction.
 
 ## PostgreSQL migration and connection ownership
 
-`migrations/0001_evidence_ledger.sql` creates service-owned tables and indexes.
+`migrations/0001_evidence_ledger.sql` creates service-owned tables and indexes;
+`0002_evidence_checks.sql` adds immutable checker decisions and proof replay guards.
 `goalpulse_evidence.migrations.apply_migrations(connection, directory)` applies
 forward migrations atomically under an advisory lock, checksums applied versions,
 and refuses changed migration history. No database creation/drop is performed.
@@ -120,3 +122,79 @@ create condition/model/shipping/tax/stock proof. Normalization remains unverifie
 default, or disputed on conflicting signals, with no automatic checked upgrade.
 GE keeps unsupported mandatory condition/attribute checks unknown, so v1 evidence
 cannot verify a `condition=new` opportunity.
+
+## R2-D3-02 internal checked policy
+
+`checking.EvidenceChecker.check(observation_id, check_id=..., correlation_id=...)`
+reads an existing observation and its original capture from the owned ledger. It
+has no HTTP route. The injected `RepresentationReader.load(UUID)` reads a recorded
+seller JSON-LD fragment through a separate trusted capture-storage path; HTTP
+extracted fields and excerpts cannot supply this proof. The explicit server-owned
+`merchant_hosts` registry defaults to no implicit merchant trust.
+
+The `icp09-v1` policy supports a single first-party HTTPS Product/Offer sold per
+`pcs`, with exact product name/model, integer EUR cents, explicit stock and product
+condition, matching request/cache provenance, public recorded capture addresses,
+and evidence at most 30 minutes old. `seller-jsonld-v1` independently parses that
+bounded representation. Aggregate/search cards, missing facts, malformed data,
+stale proof and proof replay cannot promote. Fixture provenance is permitted only
+with explicit `profile="test"`; dev/demo never substitute it for real evidence.
+
+Every decision records policy/normalizer versions, input/proof digests, reasons,
+original and derived IDs, correlation, check time and reproducible bounded proof.
+A checked/disputed result appends a new immutable Observation.v1 with the original
+observed timestamp and capture provenance, plus an exact `evidence.updated.v1`
+outbox event in the same transaction. Reusing a check ID returns its original
+decision; it cannot refresh evidence. Original observations remain readable by ID.
+Source reads omit superseded originals and suppress a checked snapshot when a
+current contradictory assertion exists. Same-capture conflicts append disputes
+for earlier checked interpretations too; genuine later price changes are allowed.
+
+Brand, FI delivery, shipping and tax remain unknown when absent. Known assertions
+without matching structured seller proof are removed from the checked derivative;
+explicit contradictions are disputed. A verified capture URL replaces any caller
+link. Product condition stays in the internal audit because v1 has no condition
+field. GE therefore retains its existing hard unknown gates; checked does not mean
+checkout availability, a completed goal, or purchase approval.
+
+Apply migration 0002 before using checker/source reads. R2-D3-01 must wire a real
+recorded-representation adapter and invoke the checker from the private pipeline;
+without that proof, observations remain unverified. The adapter must preserve
+original provider times/request IDs and verify capture URL/DNS/redirect provenance;
+it must never reconstruct proof from the submitted normalized assertion. This
+task adds no public/internal HTTP API, dependency declaration or environment variable.
+
+See [R2-D3-02 evidence and handoff](reports/R2-D3-02-CHECKED-POLICY.md) for checks,
+integration limits and redacted recorded smoke evidence.
+
+## R2-D3-01 private API and publisher runtime
+
+`goalpulse_evidence.runtime.from_env` is the Uvicorn app factory. It composes
+scoped PostgreSQL connections, the immutable ledger and canonical reads, and
+applies all owned migrations before serving. `GOALPULSE_PROFILE` must be
+`test`, `dev` or `demo`; `DATA_EVIDENCE_DATABASE_URL` must name `data_evidence`
+(tests may use `data_evidence_test`). Configure the existing `SERVICE_JWT_SECRET`,
+`SERVICE_JWT_ISSUER` and `SERVICE_JWT_AUDIENCE`; the signing secret must contain at
+least 32 bytes. The publisher also requires the existing `RABBITMQ_URL`.
+
+From `services/data-evidence/`, run separate private processes:
+
+```powershell
+../../.venv/Scripts/python.exe -m goalpulse_evidence api
+../../.venv/Scripts/python.exe -m goalpulse_evidence publisher
+```
+
+The API binds loopback port 8004 by default. `/health/live` checks the process and
+`/health/ready` checks DB/migration checksums. Connections and statements have
+bounded timeouts; operational failures return fixed redacted 503 errors. The
+publisher uses the existing confirmed, persistent, mandatory outbox path and
+bounded broker connection/retry settings. `publisher --once` processes one due row.
+
+Dev/demo reject fixture submissions and fixture reads. `DE_EVIDENCE_MODE`, if
+configured outside tests, must be `real`. There is no fixture fallback and no
+external provider access in DE. The accepted ExtractionSubmission cannot carry
+independent seller-representation proof, so runtime HTTP observations remain
+unverified; no ad hoc JSON-LD/condition fields or checked claims were added.
+
+See the [R2-D3-01 pipeline report](../discovery-monitoring/reports/R2-D3-01-PRODUCTION-PIPELINE.md)
+for tested integration behavior and the remaining actual-stack acceptance check.

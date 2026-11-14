@@ -60,6 +60,16 @@ class SourceRegistry:
         if type(goal_version) is not int or goal_version < 1:
             raise ValueError("Invalid goal version")
         with self.database.transaction() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (f"sources:{goal_id}",))
+            cursor.execute("SELECT source_id FROM goal_source_links WHERE goal_id=%s AND goal_version=%s AND state='active' ORDER BY updated_at,source_id",
+                           (str(goal_id), goal_version))
+            active = [str(row[0]) for row in cursor.fetchall()]
+            if str(source_id) not in active and len(active) >= 3:
+                # Replace older candidates as discovery changes; never keep more
+                # than three active URLs for this goal/version even mid-scan.
+                for old in active[:len(active) - 2]:
+                    cursor.execute("UPDATE goal_source_links SET state='inactive' WHERE goal_id=%s AND goal_version=%s AND source_id=%s",
+                                   (str(goal_id), goal_version, old))
             cursor.execute("""INSERT INTO goal_source_links (goal_id,goal_version,source_id,state)
                 VALUES (%s,%s,%s,'active') ON CONFLICT (goal_id,goal_version,source_id)
                 DO UPDATE SET state='active',updated_at=now()""", (str(goal_id), goal_version, str(source_id)))
@@ -74,9 +84,19 @@ class SourceRegistry:
         if lifecycle not in ("active", "paused", "cancelled", "completed") or current_version < 1:
             raise ValueError("Invalid runtime state")
         with self.database.transaction() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (f"sources:{goal_id}",))
             cursor.execute("""UPDATE goal_source_links SET
-                state=CASE WHEN goal_version=%s AND %s='active' THEN 'active' ELSE 'inactive' END,
-                updated_at=now() WHERE goal_id=%s""", (current_version, lifecycle, str(goal_id)))
+                state=CASE WHEN goal_version=%s AND %s='active' AND source_id IN
+                    (SELECT source_id FROM goal_source_links WHERE goal_id=%s AND goal_version=%s
+                     ORDER BY updated_at DESC,source_id LIMIT 3)
+                THEN 'active' ELSE 'inactive' END WHERE goal_id=%s""",
+                (current_version, lifecycle, str(goal_id), current_version, str(goal_id)))
+
+    def suspend(self, goal_id: UUID) -> None:
+        """Stop owned monitoring links for a quota/policy block, without changing GM."""
+        with self.database.transaction() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (f"sources:{goal_id}",))
+            cursor.execute("UPDATE goal_source_links SET state='inactive' WHERE goal_id=%s", (str(goal_id),))
 
     def linked_goals(self) -> list[UUID]:
         with self.database.transaction() as cursor:

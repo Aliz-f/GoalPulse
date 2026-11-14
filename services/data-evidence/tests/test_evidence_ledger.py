@@ -172,12 +172,20 @@ def test_future_observation_is_not_accepted_as_fresh(observation, capture):
     assert not result.accepted and result.reason == "FUTURE_OBSERVED_AT"
 
 
-@pytest.mark.parametrize("reliability", ["checked", "unverified", "disputed"])
+@pytest.mark.parametrize("reliability", ["unverified", "disputed"])
 def test_storage_never_upgrades_or_changes_reliability(observation, capture, reliability):
     observation["evidence"]["reliability"] = reliability
     repository = MemoryRepository()
     assert ledger(repository).record(observation, capture, correlation_id=CORRELATION).accepted
     assert next(iter(repository.state["observations"].values()))["evidence"]["reliability"] == reliability
+
+
+def test_ingestion_cannot_bypass_internal_checker(observation, capture):
+    observation["evidence"]["reliability"] = "checked"
+    repository = MemoryRepository()
+    result = ledger(repository).record(observation, capture, correlation_id=CORRELATION)
+    assert not result.accepted and result.reason == "CALLER_CHECKED"
+    assert not repository.state["observations"] and not repository.state["outbox"]
 
 
 @pytest.mark.parametrize("fail_at", ["provenance", "outbox"])

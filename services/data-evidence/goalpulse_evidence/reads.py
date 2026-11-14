@@ -44,6 +44,39 @@ class EvidenceReads:
     def by_source(self, source_id: UUID, *, limit: int = 20) -> list[dict]:
         if not isinstance(source_id, UUID) or type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("source_id must be UUID and limit between 1 and 100")
-        return self._query("""SELECT payload FROM observations WHERE source_id = %s
-                              ORDER BY observed_at DESC, observation_id DESC LIMIT %s""",
+        return self._query("""SELECT payload FROM observations o WHERE source_id = %s
+                              AND NOT EXISTS (SELECT 1 FROM evidence_checks c
+                                              WHERE c.original_observation_id = o.observation_id
+                                                AND c.result_observation_id IS NOT NULL)
+                              AND (o.reliability <> 'checked' OR NOT EXISTS (
+                                  SELECT 1 FROM observations x
+                                  WHERE x.source_id = o.source_id
+                                    AND x.observation_id <> o.observation_id
+                                    AND x.observed_at >= o.observed_at
+                                    AND NOT EXISTS (SELECT 1 FROM evidence_checks xc
+                                                    WHERE xc.original_observation_id = x.observation_id
+                                                      AND xc.result_observation_id IS NOT NULL)
+                                    AND (
+                                        x.payload->'product_name' IS DISTINCT FROM o.payload->'product_name'
+                                        OR x.payload->'unit_price_eur_cents' IS DISTINCT FROM o.payload->'unit_price_eur_cents'
+                                        OR (NULLIF(x.payload->>'model', '') IS NOT NULL
+                                            AND NULLIF(o.payload->>'model', '') IS NOT NULL
+                                            AND x.payload->'model' IS DISTINCT FROM o.payload->'model')
+                                        OR (x.payload->>'availability' <> 'unknown'
+                                            AND o.payload->>'availability' <> 'unknown'
+                                            AND x.payload->'availability' IS DISTINCT FROM o.payload->'availability')
+                                        OR (x.payload->>'brand' IS NOT NULL AND o.payload->>'brand' IS NOT NULL
+                                            AND x.payload->'brand' IS DISTINCT FROM o.payload->'brand')
+                                        OR (x.payload->>'delivery_to_fi' <> 'unknown'
+                                            AND o.payload->>'delivery_to_fi' <> 'unknown'
+                                            AND x.payload->'delivery_to_fi' IS DISTINCT FROM o.payload->'delivery_to_fi')
+                                        OR (x.payload->>'shipping_eur_cents' IS NOT NULL
+                                            AND o.payload->>'shipping_eur_cents' IS NOT NULL
+                                            AND x.payload->'shipping_eur_cents' IS DISTINCT FROM o.payload->'shipping_eur_cents')
+                                        OR (x.payload->>'tax_eur_cents' IS NOT NULL
+                                            AND o.payload->>'tax_eur_cents' IS NOT NULL
+                                            AND x.payload->'tax_eur_cents' IS DISTINCT FROM o.payload->'tax_eur_cents')
+                                    )
+                              ))
+                              ORDER BY observed_at DESC, created_at DESC, observation_id DESC LIMIT %s""",
                            (str(source_id), limit), many=True)

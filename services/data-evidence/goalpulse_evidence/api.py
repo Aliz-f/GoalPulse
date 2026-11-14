@@ -61,8 +61,15 @@ def _failure_reason(facts: ExtractedFacts, capture: Capture) -> str | None:
     return None
 
 
-def create_app(ledger: EvidenceLedger, reads) -> FastAPI:
+def create_app(ledger: EvidenceLedger, reads, *, profile: str = "test") -> FastAPI:
+    if profile not in ("test", "dev", "demo"):
+        raise ValueError("Unsupported runtime profile")
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    def ensure_runtime_evidence(observation: dict) -> None:
+        if profile != "test" and (observation.get("provider") == "fixture"
+                                  or observation.get("extraction_method") == "fixture"):
+            raise HTTPException(503, "fixture evidence disabled")
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_request, _error):
@@ -73,6 +80,8 @@ def create_app(ledger: EvidenceLedger, reads) -> FastAPI:
     async def submit_extraction(body: ExtractionSubmission, response: Response,
                                 authorization: str | None = Header(default=None)):
         _authorize(authorization, "de.extractions.write")
+        if profile != "test" and (body.provider == "fixture" or body.extraction_method == "fixture"):
+            raise HTTPException(400, "fixture provenance disabled")
         try:
             capture = Capture(
                 source_id=body.source_id,
@@ -82,7 +91,10 @@ def create_app(ledger: EvidenceLedger, reads) -> FastAPI:
                 fetched_at=body.fetched_at,
                 provider_request_id=body.provider_request_id,
                 cache_age_ms=body.cache_age_ms,
-                field_sources={"evidence": body.extracted.source_capture_url or body.source_url},
+                field_sources={
+                    "evidence": body.extracted.source_capture_url or body.source_url,
+                    "reliability_suggestion": body.extracted.evidence_reliability,
+                },
                 parser_version="internal-http-v1",
             )
             facts = body.extracted
@@ -118,8 +130,7 @@ def create_app(ledger: EvidenceLedger, reads) -> FastAPI:
                     "tax_eur_cents": facts.tax_eur_cents,
                     "evidence": {
                         "text_excerpt": facts.evidence_excerpt,
-                        # A caller cannot promote evidence to checked. A reviewed
-                        # DE corroboration policy is required for that transition.
+                        # ICP-09: only the internal checker can promote a snapshot.
                         "reliability": "disputed" if facts.evidence_reliability == "disputed" else "unverified",
                         "capture_url": facts.source_capture_url,
                     },
@@ -138,7 +149,10 @@ def create_app(ledger: EvidenceLedger, reads) -> FastAPI:
     async def observations(source_id: UUID, limit: int = Query(default=20, ge=1, le=100),
                            authorization: str | None = Header(default=None)):
         _authorize(authorization, "de.observations.read")
-        return {"observations": reads.by_source(source_id, limit=limit)}
+        found = reads.by_source(source_id, limit=limit)
+        for item in found:
+            ensure_runtime_evidence(item)
+        return {"observations": found}
 
     @app.get("/internal/v1/observations/{observation_id}")
     async def observation(observation_id: UUID, authorization: str | None = Header(default=None)):
@@ -146,6 +160,7 @@ def create_app(ledger: EvidenceLedger, reads) -> FastAPI:
         found = reads.by_id(observation_id)
         if found is None:
             raise HTTPException(404, "observation not found")
+        ensure_runtime_evidence(found)
         return found
 
     return app

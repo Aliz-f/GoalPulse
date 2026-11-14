@@ -1,6 +1,7 @@
 """Synthetic provider responses only; no network or credentials are used."""
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import json
 
 import pytest
@@ -69,6 +70,25 @@ def test_cached_output_is_never_relabelled_fresh():
     assert result.observed_at == NOW - timedelta(minutes=1)
     assert result.fetched_at == NOW
     assert result.request_id == "fixture-request"
+
+
+def test_scrape_retains_request_start_separately_from_response_receipt():
+    transport = FakeTransport(response(scrape_payload()))
+    moments = iter((NOW, NOW + timedelta(seconds=5)))
+    client = ContextProvider("synthetic_test_key", transport=transport, resolver=PUBLIC_DNS,
+                             clock=lambda: next(moments))
+    result = client.scrape("https://example.com/item")
+    assert result.requested_at == NOW
+    assert result.fetched_at == NOW + timedelta(seconds=5)
+    assert result.observed_at == NOW - timedelta(seconds=55)
+    assert result.provider_observed_at is None
+
+
+def test_provider_numeric_price_keeps_decimal_precision_without_binary_float():
+    raw = json.dumps(scrape_payload()).replace('"price": "3.00"', '"price": 3.01')
+    client, _, _ = provider(HttpResponse(200, {}, raw.encode()))
+    price = client.scrape("https://example.com/item").product.data["product"]["price"]
+    assert type(price) is Decimal and price == Decimal("3.01")
 
 
 @pytest.mark.parametrize("cache", [None, {}, {"age_ms": -1}, {"age_ms": True}, {"age_ms": "0"}])
