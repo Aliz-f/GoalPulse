@@ -25,6 +25,8 @@ OWNER_A = uuid.UUID("ae000000-0000-4000-8000-00000000000a")
 OWNER_B = uuid.UUID("ae000000-0000-4000-8000-00000000000b")
 SESSION = uuid.UUID("ae000000-0000-4000-8000-000000000011")
 GOAL = uuid.UUID("ae000000-0000-4000-8000-000000000012")
+NOTIFICATION = uuid.UUID("ae000000-0000-4000-8000-000000000013")
+PACKAGE = uuid.UUID("ae000000-0000-4000-8000-000000000014")
 CORRELATION = uuid.UUID("ae000000-0000-4000-8000-000000000099")
 NOW = 2_000_000_000
 
@@ -53,6 +55,11 @@ def settings(*, profile: str = "demo", body_limit: int = 65_536) -> GatewaySetti
         service_jwt_audience="goalpulse-internal",
         goal_intelligence_url="http://goal-intelligence:8000",
         goal_management_url="http://goal-management:8000",
+        discovery_monitoring_url="http://discovery-monitoring:8000",
+        data_evidence_url="http://data-evidence:8000",
+        goal_evaluation_url="http://goal-evaluation:8000",
+        notification_url="http://notification:8000",
+        agent_integration_url="http://agent-integration:8000",
         demo_session_secret="d" * 32 if profile == "demo" else None,
         demo_session_ttl_seconds=1800,
         demo_users=USERS if profile == "demo" else (),
@@ -91,7 +98,7 @@ class FakeTransport:
     async def request(self, method, url, *, headers, content, params):
         call = {"method": method, "url": url, "headers": headers, "content": content, "params": params}
         self.calls.append(call)
-        if url.endswith("/healthz"):
+        if url.endswith(("/healthz", "/health/ready")):
             return httpx.Response(200, json={"status": "ok"})
         # Prove that a downstream authorization decision remains opaque.
         owner = headers.get("X-Authenticated-User-Id")
@@ -199,6 +206,27 @@ async def test_all_seven_frozen_routes_forward_exactly_and_preserve_status(app, 
 
 
 @pytest.mark.anyio
+async def test_accepted_phase2_reads_are_exact_owner_context_routes(app, transport):
+  async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
+    assert (await login(client)).status_code == 200
+    cases = [
+        ("GET", f"/v1/goals/{GOAL}/evaluations?limit=5", "goal-evaluation", [("limit", "5")], "ge.history.read"),
+        ("GET", "/v1/notifications?limit=7", "notification", [("limit", "7")], "ns.notifications.read"),
+        ("PATCH", f"/v1/notifications/{NOTIFICATION}/read", "notification", [], "ns.notifications.write"),
+        ("GET", f"/v1/action-packages/{PACKAGE}", "agent-integration", [], "ai.packages.read"),
+    ]
+    for method, path, host, params, scope in cases:
+        headers = csrf_headers(client) if method == "PATCH" else {}
+        response = await client.request(method, path, headers=headers)
+        assert response.status_code == 200
+        call = transport.calls[-1]
+        assert host in call["url"] and call["params"] == params
+        claims = _decode_claims(call["headers"]["Authorization"])
+        assert claims["token_kind"] == "service" and claims["sub"] == str(OWNER_A)
+        assert claims["scope"] == scope
+
+
+@pytest.mark.anyio
 async def test_gateway_replaces_browser_identity_headers_and_mints_expected_tokens(app, transport):
   async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gateway") as client:
     assert (await login(client)).status_code == 200
@@ -256,7 +284,7 @@ async def test_bearer_auth_body_limit_and_disabled_demo_routes(transport):
 
 
 @pytest.mark.anyio
-async def test_readiness_requires_both_goal_services():
+async def test_readiness_requires_all_seven_service_apis():
     healthy_app = create_app(settings(), FakeTransport(), session_clock=lambda: NOW)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=healthy_app), base_url="http://gateway") as client:
         assert (await client.get("/health/ready")).json() == {"status": "ready"}
@@ -278,6 +306,11 @@ def complete_demo_env() -> dict[str, str]:
         "SERVICE_JWT_AUDIENCE": "goalpulse-internal",
         "GOAL_INTELLIGENCE_URL": "http://goal-intelligence:8000",
         "GOAL_MANAGEMENT_URL": "http://goal-management:8000",
+        "DISCOVERY_MONITORING_URL": "http://discovery-monitoring:8000",
+        "DATA_EVIDENCE_URL": "http://data-evidence:8000",
+        "GOAL_EVALUATION_URL": "http://goal-evaluation:8000",
+        "NOTIFICATION_URL": "http://notification:8000",
+        "AGENT_INTEGRATION_URL": "http://agent-integration:8000",
         "GATEWAY_DEMO_SESSION_SECRET": "d" * 32,
         "GATEWAY_DEMO_SESSION_TTL_SECONDS": "1800",
         "NEXT_PUBLIC_API_MODE": "gateway",
@@ -304,6 +337,7 @@ def complete_demo_env() -> dict[str, str]:
         ({"DE_EVIDENCE_PROVIDER": "fixture"}, "DE_EVIDENCE_PROVIDER"),
         ({"CONTEXT_DEV_API_KEY": ""}, "CONTEXT_DEV_API_KEY"),
         ({"GATEWAY_DEMO_SESSION_SECRET": ""}, "GATEWAY_DEMO_SESSION_SECRET"),
+        ({"GOAL_EVALUATION_URL": ""}, "GOAL_EVALUATION_URL"),
     ],
 )
 def test_demo_configuration_fails_closed_without_leaking_values(change, message):

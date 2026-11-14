@@ -1,4 +1,4 @@
-# R2-D1-01 Gateway/auth handoff and current R1 blockers
+# R2-D1-01 Gateway/auth and seven-service runtime handoff
 
 **Owner:** Developer 1. **Contract baseline:** frozen
 `contracts/openapi/gateway.v1.yaml`, accepted
@@ -15,6 +15,11 @@ expose `/internal/` routes. These frozen routes are wired:
 | Create/message/get goal session | Goal Intelligence, same path | 60-second ServiceBearer JWT with `gi.session.write`, plus Gateway-derived `X-Authenticated-User-Id` |
 | Confirm session | Goal Management, same path | 60-second user-context JWT with owner UUID `sub` |
 | List/get/lifecycle goal | Goal Management, same path | 60-second user-context JWT with owner UUID `sub` |
+
+The accepted additive Phase 2 evaluation, notification and package paths are
+also explicit. They receive a 60-second service JWT whose UUID subject is the
+Gateway-derived owner and whose scope permits exactly one operation. Browser
+identity headers and tokens are never forwarded.
 
 Gateway preserves downstream HTTP status and JSON body, passes only a validated
 or minted UUID correlation ID, and does not forward browser authorization or
@@ -47,7 +52,7 @@ no credentialed CORS response. Login itself needs Origin but not a prior CSRF
 token. Invalid credentials are `401`, integrity failure `403`, throttle `429`,
 and disabled demo profile `503`.
 
-## Runtime state and blockers
+## Runtime state and remaining interface blocker
 
 | Acceptance item | State | Evidence / blocker |
 |---|---|---|
@@ -55,14 +60,15 @@ and disabled demo profile `503`.
 | Two owners, unauthenticated denial, cross-owner masked as 404 | PASS | Gateway tests use independent cookie jars and downstream owner checks. |
 | Demo auth, CSRF, rate limit, no token response | PASS | Gateway unit/security tests. |
 | Demo rejects FE mock, GI fixture, DE fixture, and missing secrets | PASS | `GatewaySettings.from_env` fail-closed tests. |
-| Private service ports and deterministic GI migration | PASS | Compose topology tests and isolated Docker smoke. |
-| One command starts all P0 APIs/workers | BLOCKED | GM runtime composition belongs to R2-D1-02. DM and DE require injected production factories; GE and Notification lack runnable owner-provided API/worker entrypoints. Adding fake health processes would violate truthful readiness. |
-| Full demo-profile live provider smoke | BLOCKED | Depends on D2/D3 live runtime tasks and provisioned provider credentials; no live paid calls were made here. |
+| Private ports, ordered migrations, seven APIs and workers | PASS configuration | Compose and platform-runner tests cover all declared processes; live start still requires the binding below and provisioned provider settings. |
+| One command reaches green readiness | BLOCKED | D4 correctly requires complete goal-version→sources lookup; D3 currently exposes only source→goals. `DM_GOAL_SOURCES_BINDING_APPROVED=false` holds GE and downstream readiness closed. |
+| Full demo-profile live provider smoke | NOT RUN | Requires provisioned Anthropic/Context.dev credentials and approved Context access-policy ID; no paid call is made by tests. |
 
-Owners should publish executable module names, health/readiness paths,
-requirements, migration commands, worker commands, and required environment
-keys. D1 can then add them to the generic private Python service image and
-Compose without changing their source trees.
+The remaining interface is proposed in
+`services/goal-evaluation/PHASE2_HANDOFF.md`. D1 and D3 must approve and publish
+the additive private contract, then D3 implements the complete bounded lookup.
+Until then infrastructure neither reads D3 SQL nor substitutes an incomplete
+source list.
 
 ## Commands and redacted smoke evidence
 

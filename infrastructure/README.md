@@ -15,14 +15,18 @@ docker compose -f infrastructure/docker-compose.yml --env-file .env up -d --buil
 docker compose -f infrastructure/docker-compose.yml --env-file .env ps
 ```
 
-This single command currently starts the infrastructure, the owner-provided
-Goal Intelligence migration/API, and Gateway. It does **not** yet satisfy the
-R2-D1-01 seven-service acceptance criterion: Goal Management runtime composition
-is R2-D1-02, and the D3/D4 services still need their owners' production
-factories/worker commands. Gateway liveness is available, but readiness remains
-`503 not_ready` until both GI and GM respond successfully. The Gateway does not
-substitute fake ready services.
-See `docs/phase2/R2-D1-01-GATEWAY-HANDOFF.md` for the exact status.
+This command declares PostgreSQL, RabbitMQ, migrations, all seven private service
+APIs, their P0/P1 workers, and Gateway. Gateway is the only application port
+published to the host. Each API has a dependency-aware readiness check; Gateway
+readiness is green only after every private API is green. Worker processes use
+the existing durable queues and do not publish alternate event names.
+
+The stack deliberately remains not-ready while
+`DM_GOAL_SOURCES_BINDING_APPROVED=false`. Goal Evaluation requires the complete
+goal-version-to-sources binding documented in the D4 handoff. Set this flag only
+after the D1/D3 additive private route is approved and deployed; the platform
+does not query Discovery's database or pretend the triggering source is complete.
+See `docs/phase2/R2-D1-01-GATEWAY-HANDOFF.md` for exact evidence.
 
 Use `.env.example` to create `.env` and replace every development password.
 On the first boot, the PostgreSQL init script creates one non-superuser role
@@ -58,6 +62,12 @@ Put only the resulting `pbkdf2_sha256$...` value in
 The frontend must use credentialed requests, copy the non-HttpOnly
 `goalpulse_csrf` cookie into `X-CSRF-Token` for mutations, and never read or
 store the session cookie/token.
+
+The accepted Phase 2 owner reads are also exact routes: evaluation history,
+notifications/read acknowledgement and action packages. Gateway mints a
+60-second owner-bound service JWT with one of `ge.history.read`,
+`ns.notifications.read`, `ns.notifications.write`, or `ai.packages.read`.
+Private D4 adapters validate that token and never trust a browser owner header.
 
 ## Topology smoke check
 
