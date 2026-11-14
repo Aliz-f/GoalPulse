@@ -1,17 +1,28 @@
 # Local platform runbook
 
-This Compose stack is for local development only. PostgreSQL is bound to
-`127.0.0.1:5432`; RabbitMQ AMQP and management are bound to `127.0.0.1:5672`
-and `127.0.0.1:15672`. Do not expose these ports or reuse the sample passwords
-outside local development.
+This Compose stack is for local development only. Gateway is the only browser
+application endpoint and is bound to `127.0.0.1:8000`. Service HTTP ports are
+container-private. PostgreSQL and RabbitMQ remain loopback-only when published;
+their host ports can be changed with `POSTGRES_HOST_PORT`,
+`RABBITMQ_HOST_PORT`, and `RABBITMQ_MANAGEMENT_HOST_PORT`. Do not expose these
+ports or reuse sample passwords outside local development.
 
 ## Start and verify
 
 ```bash
 docker compose -f infrastructure/docker-compose.yml --env-file .env config --quiet
-docker compose -f infrastructure/docker-compose.yml --env-file .env up -d
+docker compose -f infrastructure/docker-compose.yml --env-file .env up -d --build
 docker compose -f infrastructure/docker-compose.yml --env-file .env ps
 ```
+
+This single command currently starts the infrastructure, the owner-provided
+Goal Intelligence migration/API, and Gateway. It does **not** yet satisfy the
+R2-D1-01 seven-service acceptance criterion: Goal Management runtime composition
+is R2-D1-02, and the D3/D4 services still need their owners' production
+factories/worker commands. Gateway liveness is available, but readiness remains
+`503 not_ready` until both GI and GM respond successfully. The Gateway does not
+substitute fake ready services.
+See `docs/phase2/R2-D1-01-GATEWAY-HANDOFF.md` for the exact status.
 
 Use `.env.example` to create `.env` and replace every development password.
 On the first boot, the PostgreSQL init script creates one non-superuser role
@@ -28,6 +39,25 @@ to Notification and Agent Integration), and a dedicated durable DLQ for each.
 Applications must publish persistent messages (`delivery_mode=2`) with
 publisher confirms and consume with manual acknowledgement; this is an
 application-client setting, not a broker default.
+
+## Gateway and demo profile
+
+The Gateway validates either a signed user bearer token or, only when
+`GOALPULSE_PROFILE=demo`, the signed `goalpulse_session` HttpOnly cookie. Demo
+startup fails if the two users, session/JWT secrets, frontend gateway mode,
+Anthropic configuration, or Context.dev key is missing. Generate a password
+hash without putting plaintext on the command line:
+
+```bash
+PYTHONPATH=infrastructure/gateway python -c \
+  'from getpass import getpass; from goalpulse_gateway.sessions import hash_demo_password; print(hash_demo_password(getpass()))'
+```
+
+Put only the resulting `pbkdf2_sha256$...` value in
+`GATEWAY_DEMO_USER_A_PASSWORD_HASH` or `GATEWAY_DEMO_USER_B_PASSWORD_HASH`.
+The frontend must use credentialed requests, copy the non-HttpOnly
+`goalpulse_csrf` cookie into `X-CSRF-Token` for mutations, and never read or
+store the session cookie/token.
 
 ## Topology smoke check
 

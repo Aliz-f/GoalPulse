@@ -79,3 +79,25 @@ def test_compose_mounts_bootstrap_and_broker_definitions():
         "AGENT_INTEGRATION_DB_PASSWORD",
     ):
         assert name in postgres_environment
+
+
+def test_gateway_is_only_application_port_and_services_use_private_networks():
+    compose = yaml.safe_load((INFRASTRUCTURE / "docker-compose.yml").read_text(encoding="utf-8"))
+    services = compose["services"]
+    assert services["gateway"]["ports"] == ["127.0.0.1:${GATEWAY_HOST_PORT:-8000}:8000"]
+    assert "ports" not in services["goal-intelligence"]
+    assert services["goal-intelligence"]["expose"] == ["8000"]
+    assert services["gateway"]["networks"] == ["app"]
+    assert set(services["goal-intelligence"]["networks"]) == {"app", "data"}
+    assert "data" not in services["gateway"]["networks"]
+    for service in ("postgres", "rabbitmq", "goal-intelligence"):
+        assert "app" not in services[service].get("networks", []) or service == "goal-intelligence"
+
+
+def test_goal_intelligence_migrates_before_api_and_gateway_waits_for_health():
+    compose = yaml.safe_load((INFRASTRUCTURE / "docker-compose.yml").read_text(encoding="utf-8"))
+    services = compose["services"]
+    assert services["goal-intelligence-migrate"]["depends_on"]["postgres"]["condition"] == "service_healthy"
+    assert services["goal-intelligence"]["depends_on"]["goal-intelligence-migrate"]["condition"] == "service_completed_successfully"
+    assert services["gateway"]["depends_on"]["goal-intelligence"]["condition"] == "service_healthy"
+    assert services["gateway"]["environment"]["GOAL_INTELLIGENCE_URL"] == "http://goal-intelligence:8000"
