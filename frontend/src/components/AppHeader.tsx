@@ -1,16 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, Plus, Radar, Target } from "lucide-react";
-import { useState, useSyncExternalStore } from "react";
+import { Bell, LogOut, Plus, Radar, Target, UserRound } from "lucide-react";
+import { useState } from "react";
 
+import { useSession } from "@/components/AuthGate";
 import { Icon } from "@/components/Icons";
-import { API_MODE, GATEWAY_URL } from "@/lib/api";
-import { getToken, onTokenChange, setToken } from "@/lib/auth";
-
-function useToken(): string | null {
-  return useSyncExternalStore(onTokenChange, getToken, () => null);
-}
+import { API_MODE, GATEWAY_URL, sessionStore } from "@/lib/api";
 
 export function AppHeader() {
   return (
@@ -28,7 +24,7 @@ export function AppHeader() {
           <Icon icon={Target} />
           My goals
         </Link>
-        {/* ICP-02 screens exist only where their API does (mock mode until approved). */}
+        {/* Notifications use the Phase 2 extension API; wired in gateway mode by R2-D2-04. */}
         {API_MODE === "mock" && (
           <Link href="/notifications" className="with-icon">
             <Icon icon={Bell} />
@@ -41,55 +37,48 @@ export function AppHeader() {
           Mock mode · scripted replies
         </span>
       ) : (
-        <GatewayAuth />
+        <Account />
       )}
     </header>
   );
 }
 
-function GatewayAuth() {
-  const token = useToken();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
+function Account() {
+  const state = useSession();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
 
-  if (token && !editing) {
-    return (
-      <div className="auth">
-        <span className="badge" title={GATEWAY_URL}>
-          Signed in
-        </span>
-        <button type="button" className="link-button" onClick={() => setToken(null)}>
-          Sign out
-        </button>
-      </div>
-    );
+  if (state.status !== "signed_in" || !sessionStore) return null;
+  const store = sessionStore;
+
+  async function signOut() {
+    setBusy(true);
+    setError(false);
+    try {
+      await store.signOut();
+    } catch {
+      // The cookie may still be valid, so don't pretend the user is signed out.
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <form
-      className="auth"
-      onSubmit={(e) => {
-        e.preventDefault();
-        setToken(draft);
-        setDraft("");
-        setEditing(false);
-      }}
-    >
-      {/* Interim UI for the signed local-dev issuer accepted under ICP-08. */}
-      <label htmlFor="token" className="visually-hidden">
-        Access token
-      </label>
-      <input
-        id="token"
-        type="password"
-        autoComplete="off"
-        placeholder="Paste dev access token"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-      />
-      <button type="submit" disabled={!draft.trim()}>
-        Sign in
+    <div className="auth">
+      <span className="badge with-icon" title={`Signed in through ${GATEWAY_URL}`}>
+        <Icon icon={UserRound} size={14} />
+        {state.user.display_name}
+      </span>
+      <button type="button" className="link-button with-icon" disabled={busy} onClick={() => void signOut()}>
+        <Icon icon={LogOut} size={14} />
+        {busy ? "Signing out…" : "Sign out"}
       </button>
-    </form>
+      {error && (
+        <span role="alert" className="hint">
+          Sign-out failed; try again.
+        </span>
+      )}
+    </div>
   );
 }

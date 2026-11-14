@@ -17,7 +17,7 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: /demo\.spec\.ts$/ },
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: [/demo\.spec\.ts$/, /[\\/]gateway[\\/]/] },
     {
       // Handoff screencast (D2 integration handoff): `npm run demo` → demo-output/
       name: "demo",
@@ -37,6 +37,6 @@ export default defineConfig({
     timeout: 180_000,
     // Mock lane: recorded Goal Intelligence conversations, labelled "Mock mode" in the UI.
     // Own dist dir so a developer's `npm run dev` (which locks `.next`) can keep running.
-    env: { NEXT_PUBLIC_API_MODE: "mock", NEXT_DIST_DIR: ".next-e2e" },
+    env: { NEXT_PUBLIC_GOALPULSE_PROFILE: "test", NEXT_PUBLIC_API_MODE: "mock", NEXT_DIST_DIR: ".next-e2e" },
   },
 });

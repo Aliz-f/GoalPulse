@@ -84,7 +84,6 @@ describe("gateway goal routes", () => {
     const calls: { url: string; init: RequestInit }[] = [];
     const api = createGatewayApi({
       baseUrl: "http://gw",
-      getToken: () => "t",
       fetchImpl: async (url, init) => {
         calls.push({ url, init });
         return init.method === "PATCH" ? new Response(null, { status: 204 }) : Response.json([]);

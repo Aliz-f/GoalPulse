@@ -1,19 +1,34 @@
-import { getToken, onTokenChange } from "../auth.ts";
 import type { GoalDraft } from "../contracts.ts";
+import { resolveRuntime, type ApiMode, type Runtime } from "../runtime.ts";
+import { createSessionStore, userIdOf, type SessionStore } from "../session.ts";
+import { createDemoAuthApi } from "./demo-auth.ts";
 import { createGatewayApi } from "./gateway.ts";
 import { createMockApi } from "./mock.ts";
 import type { GoalPulseApi } from "./types.ts";
 
-// NEXT_PUBLIC_* values are inlined at build time. Only the public gateway URL lives
-// here: no private service URL, service token or provider key ever reaches the browser.
-export const API_MODE: "mock" | "gateway" = process.env.NEXT_PUBLIC_API_MODE === "gateway" ? "gateway" : "mock";
-export const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "";
+// Each NEXT_PUBLIC_* value must be written out literally so Next inlines it at build
+// time. resolveRuntime throws on a missing or unknown value, so a misconfigured build
+// fails instead of loading the mock (R2-D2-02).
+export const RUNTIME: Runtime = resolveRuntime({
+  NEXT_PUBLIC_GOALPULSE_PROFILE: process.env.NEXT_PUBLIC_GOALPULSE_PROFILE,
+  NEXT_PUBLIC_API_MODE: process.env.NEXT_PUBLIC_API_MODE,
+  NEXT_PUBLIC_GATEWAY_URL: process.env.NEXT_PUBLIC_GATEWAY_URL,
+});
+export const API_MODE: ApiMode = RUNTIME.mode;
+export const GATEWAY_URL = RUNTIME.gatewayUrl ?? "";
+
+/** Gateway mode only: who is signed in. Null in mock mode, which has no accounts. */
+export const sessionStore: SessionStore | null =
+  RUNTIME.gatewayUrl === null ? null : createSessionStore(createDemoAuthApi({ baseUrl: RUNTIME.gatewayUrl }));
 
 let api: GoalPulseApi | null = null;
 
 export function getApi(): GoalPulseApi {
   if (!api) {
-    api = API_MODE === "gateway" ? createGatewayApi({ baseUrl: GATEWAY_URL, getToken }) : createMockApi();
+    api =
+      RUNTIME.gatewayUrl === null
+        ? createMockApi()
+        : createGatewayApi({ baseUrl: RUNTIME.gatewayUrl, onUnauthorized: () => sessionStore?.expire() });
   }
   return api;
 }
@@ -38,4 +53,11 @@ export const sessionCache = {
   clear: () => cache.clear(),
 };
 
-if (typeof window !== "undefined") onTokenChange(() => cache.clear());
+if (sessionStore) {
+  let lastUser = userIdOf(sessionStore.get());
+  sessionStore.subscribe(() => {
+    const next = userIdOf(sessionStore.get());
+    if (next !== lastUser) cache.clear();
+    lastUser = next;
+  });
+}

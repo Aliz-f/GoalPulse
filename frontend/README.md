@@ -1,6 +1,6 @@
 # GoalPulse frontend (Developer 2)
 
-Next.js 16 app for **D2-FE-01** (app shell + typed API client), **D2-FE-02** (conversational goal wizard + exact-revision confirmation), **D2-FE-03** (My Goals) and **D2-FE-04** (notifications + prepared purchase view, mock-only until ICP-02). Owned path: `frontend/`.
+Next.js 16 app for **R2-D2-02** (real gateway client, demo cookie sign-in, fail-closed runtime), **D2-FE-01** (app shell + typed API client), **D2-FE-02** (conversational goal wizard + exact-revision confirmation), **D2-FE-03** (My Goals) and **D2-FE-04** (notifications + prepared purchase view, mock-only until ICP-02). Owned path: `frontend/`.
 
 ## Run
 
@@ -9,23 +9,44 @@ Requires **Node 22** (`frontend/.nvmrc`, ADR-0003 MVP-02). Every npm script firs
 ```bash
 cd frontend
 npm install
-npm run dev            # http://localhost:3000, mock mode by default
+cp .env.example .env.local   # required: there is no default mode (see Modes)
+npm run dev            # http://localhost:3000
 npm test               # unit tests (node:test, no extra deps)
-npm run e2e            # Playwright browser tests in mock mode (starts its own dev server on :3100)
+npm run e2e            # Playwright, mock lane (own dev server on :3100)
+npm run e2e:gateway    # Playwright, gateway lane: demo profile + cookie sign-in (dev server :3101, stub gateway :8100)
 npm run demo           # handoff screencast: demo-output/*.png steps + *.webm videos (git-ignored)
 npm run typecheck && npm run lint
 ```
 
 ## Modes
 
-Copy `.env.example` to `.env.local` and pick one:
+Three settings, all required (`.env.example`). There are **no defaults**: a missing or unknown value stops `next dev` / `next build` with a message, and the app re-checks on load, so a build can never quietly fall back to the mock (R2-D2-02, ADR-0003 MVP-01).
 
-| `NEXT_PUBLIC_API_MODE` | Behaviour |
-|---|---|
-| `mock` (default) | In-browser replay of conversations **recorded from the real Goal Intelligence service**. Your text is not interpreted; each reply advances the script (a "Scripted reply" chip shows the next one). Labelled "Mock mode" in the header. "Simulate an edit from another tab" forces the next send/confirm to get HTTP 409. Sessions live in memory, so a page refresh loses them. |
-| `gateway` | Calls the public gateway at `NEXT_PUBLIC_GATEWAY_URL` (frozen `contracts/openapi/gateway.v1.yaml`) with `Authorization: Bearer <token>`. ICP-08 accepts signed JWTs; until D1-GW-01 wires an external sign-in UX, paste a signed token from the approved local dev issuer. It is kept in memory + `sessionStorage` only and clears cached drafts on sign-out or account change. |
+| `NEXT_PUBLIC_GOALPULSE_PROFILE` | `NEXT_PUBLIC_API_MODE` | Behaviour |
+|---|---|---|
+| `test` / `dev` | `mock` | In-browser replay of conversations **recorded from the real Goal Intelligence service**. Your text is not interpreted; each reply advances the script (a "Scripted reply" chip shows the next one). Labelled "Mock mode" in the header. "Simulate an edit from another tab" forces the next send/confirm to get HTTP 409. No accounts. Sessions live in memory, so a refresh loses them. |
+| `test` / `dev` / `demo` | `gateway` | Calls the public gateway at `NEXT_PUBLIC_GATEWAY_URL` (an origin, e.g. `http://localhost:8000`). Sign-in is the demo cookie flow below. |
+| `demo` | `mock` | **Refused.** The demo only runs against the real gateway. |
 
-Only `NEXT_PUBLIC_*` values reach the browser, and they hold no secrets. The frontend never calls Goal Intelligence, Goal Management or Context.dev directly, only the gateway.
+### Sign-in in gateway mode (ADR-0003 MVP-06)
+
+- The browser posts username + password once to `POST /v2/demo/sessions` (`contracts/openapi/gateway.phase2.extension.v1.yaml`). The gateway answers with the non-secret `DemoUser` and sets the **HttpOnly** `goalpulse_session` cookie. The password field is cleared after every attempt.
+- Every call uses `credentials: "include"`. The browser **never** holds, stores or sends a token, sends no `Authorization` header and never supplies an owner ID; nothing goes to `localStorage`/`sessionStorage`. On load (refresh or browser restart) the app asks `GET /v2/demo/session` who is signed in.
+- Pages render only for a signed-in user and remount when the account changes; cached drafts are dropped on sign-out or account switch. Any `401` shows "Your session ended. Sign in again."
+- Sign-out posts `/v2/demo/sessions/logout`; if that fails the UI stays signed in rather than pretending.
+- Sign-in errors: 401 wrong credentials, 403 origin/CSRF refused, 429 too many attempts, 503 demo sign-in disabled, network.
+- The New goal form says that goal text is sent to Anthropic's Claude (MVP-05).
+
+**Needs from D1's gateway (R2-D1-01):** CORS for the frontend origin with `Access-Control-Allow-Credentials: true` (exact origin, not `*`) and `Accept, Content-Type, X-Correlation-ID` allowed; the page and the gateway on the same site (e.g. both `localhost`) so the `SameSite=Lax` cookie is sent. CSRF: the frontend relies on the browser's `Origin` header today. If D1 picks a CSRF token header, it is added in one place, `src/lib/api/http.ts`.
+
+### Checks for this
+
+- `tests/routes.test.ts`: only approved routes; no browser storage, `Authorization` header or `credentials: "omit"` in `src/`; only the three `NEXT_PUBLIC_*` settings are read.
+- `scripts/check-bundle.mjs` (CI, after each build): the browser bundle holds no keys, secret settings, JWTs, private service routes or the old token store.
+- CI also proves a demo + mock build and a build with no settings both **fail**.
+- `npm run e2e:gateway`: sign-in, wrong password, reload and browser-restart persistence, two-account isolation (incl. cross-owner 404), no credentials visible to page scripts. Until R2-D1-01 lands it runs against `e2e/gateway/stub-gateway.mjs`, a **contract test double** that proves the frontend half only. Against the real gateway: `GOALPULSE_E2E_GATEWAY_URL=http://127.0.0.1:8000 GOALPULSE_E2E_USER_A=… GOALPULSE_E2E_PASS_A=… GOALPULSE_E2E_USER_B=… GOALPULSE_E2E_PASS_B=… GOALPULSE_E2E_GOAL_A="<A's goal title>" GOALPULSE_E2E_GOAL_B="<B's goal title>" npm run e2e:gateway`.
+
+Only `NEXT_PUBLIC_*` values reach the browser, and they hold no secrets. The frontend never calls Goal Intelligence, Goal Management, Anthropic or Context.dev directly, only the gateway.
 
 ## Screens
 
@@ -45,11 +66,14 @@ All icons are [Lucide](https://lucide.dev) (ISC licence) inline SVGs via `lucide
 | Path | Purpose |
 |---|---|
 | `src/lib/contracts.ts` | TS mirrors of GoalDraft.v1 / GoalSpec.v1 |
-| `src/lib/api/gateway.ts` | Typed client for the 4 frozen session/confirm operations |
+| `src/lib/runtime.ts` | Fail-closed profile/mode/gateway URL selection |
+| `src/lib/api/http.ts` | The one request path: cookie credentials, correlation ID, ICP-01 errors, 401 → sign in |
+| `src/lib/api/gateway.ts` | Typed client for the frozen session/confirm and goal operations |
+| `src/lib/api/demo-auth.ts`, `src/lib/session.ts` | Demo sign-in client and the signed-in-user store |
+| `src/components/AuthGate.tsx` | Sign-in screen; renders pages only for a signed-in user |
 | `src/lib/api/mock.ts`, `mock-scripts.ts` | Mock API; scripts generated from `services/goal-intelligence` |
 | `src/lib/api/errors.ts` | `ApiError` + one place deciding message / keep input / reload per failure |
 | `src/lib/summary.ts` | Defensive rendering of the untrusted `candidate_goal` (absent → "Not set yet") |
-| `src/lib/auth.ts` | Session-only token store for the accepted signed-JWT flow; external sign-in remains D1-GW-01 |
 | `src/lib/goals.ts` | Status/lifecycle wording, transition matrix, freshness text |
 | `e2e/` | Playwright specs: wizard → confirm, 409 on send and confirm, unsupported, My goals, lifecycle, notifications, packages |
 | `src/components/` | `AppHeader`, `NewGoalForm`, `SessionView`, `DraftSummary`, `GoalsList`, `GoalDetail`, `GoalStatus` |
@@ -58,7 +82,8 @@ All icons are [Lucide](https://lucide.dev) (ISC licence) inline SVGs via `lucide
 
 - D2-FE-04 has no gateway client on purpose (`src/lib/api/proposed.ts`); add it in the PR that approves ICP-02.
 - Mock mode seeds two sample goals (one verified, one lacking evidence) so every status style is visible; disable with `createMockApi({ seedGoals: false })`.
-- External-provider sign-in once D1-GW-01 replaces the accepted signed local-dev issuer UX.
+- Real-gateway acceptance for R2-D2-02 (persistent goal after restart, two-user isolation) runs once R2-D1-01 lands; see "Checks for this".
+- Notifications in gateway mode: R2-D2-04 (Phase 2 extension API).
 
 ## ICP-02 feedback from the frontend (for D1 + D4)
 

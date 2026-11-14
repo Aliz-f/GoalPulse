@@ -546,3 +546,9 @@ button.danger {
 .nav .with-icon {
   gap: 0.3rem;
 }
+
+/* demo sign-in (R2-D2-02) */
+.sign-in input {
+  width: 100%;
+  margin-bottom: 0.9rem;
+}
