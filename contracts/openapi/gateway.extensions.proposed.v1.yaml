@@ -1,0 +1,121 @@
+openapi: 3.1.0
+info:
+  title: GoalPulse — PROPOSED additive public Gateway endpoints (ICP-02)
+  version: 0.1.0-proposed
+  description: >-
+    Draft only. Existing contracts/openapi/gateway.v1.yaml is frozen. These
+    routes require explicit team approval and coordinated merge in the gateway.
+servers:
+  - url: http://localhost:8000
+security:
+  - BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    GoalId: {name: goal_id, in: path, required: true, schema: {type: string, format: uuid}}
+    NotificationId: {name: notification_id, in: path, required: true, schema: {type: string, format: uuid}}
+    PackageId: {name: package_id, in: path, required: true, schema: {type: string, format: uuid}}
+  schemas:
+    Notification:
+      type: object
+      additionalProperties: false
+      required: [notification_id, goal_id, goal_version, title, summary, created_at, is_read]
+      properties:
+        notification_id: {type: string, format: uuid}
+        goal_id: {type: string, format: uuid}
+        goal_version: {type: integer, minimum: 1}
+        title: {type: string}
+        summary: {type: string}
+        created_at: {type: string, format: date-time}
+        is_read: {type: boolean}
+    ActionPackage:
+      type: object
+      additionalProperties: false
+      required: [package_id, goal_id, goal_version, evaluation_id, created_at, expires_at, approval_required, auto_execute, seller_offers, next_action, requires_checkout_revalidation]
+      properties:
+        package_id: {type: string, format: uuid}
+        goal_id: {type: string, format: uuid}
+        goal_version: {type: integer, minimum: 1}
+        evaluation_id: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        approval_required: {const: true}
+        auto_execute: {const: false}
+        next_action: {const: request_user_approval}
+        requires_checkout_revalidation: {const: true}
+        total_eur_cents: {type: integer, minimum: 0}
+        seller_offers:
+          type: array
+          items:
+            type: object
+            required: [seller_domain, source_url, observation_id, item_name, quantity, unit, total_item_eur_cents]
+            properties:
+              seller_domain: {type: string}
+              source_url: {type: string, format: uri}
+              observation_id: {type: string, format: uuid}
+              item_name: {type: string}
+              quantity: {type: string}
+              unit: {type: string, enum: [pcs, kg, L]}
+              total_item_eur_cents: {type: integer, minimum: 0}
+              shipping_eur_cents: {type: integer, minimum: 0}
+              additional_tax_eur_cents: {type: integer, minimum: 0}
+paths:
+  /v1/goals/{goal_id}/evaluations:
+    get:
+      operationId: listGoalEvaluations
+      tags: [Goal Evaluation]
+      parameters:
+        - $ref: '#/components/parameters/GoalId'
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+      responses:
+        '200':
+          description: Current user's goal evaluation history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '../schemas/goal-evaluation.v1.schema.json'}
+        '404': {description: Goal absent or not owned by user}
+  /v1/notifications:
+    get:
+      operationId: listOwnNotifications
+      tags: [Notification]
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+      responses:
+        '200':
+          description: Notifications for authenticated owner only
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Notification'}
+        '401': {description: Authentication required}
+  /v1/notifications/{notification_id}/read:
+    patch:
+      operationId: markNotificationRead
+      tags: [Notification]
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '204': {description: Idempotently marked read}
+        '404': {description: Not found or not owned by user}
+  /v1/action-packages/{package_id}:
+    get:
+      operationId: getOwnAgentActionPackage
+      tags: [Agent Integration]
+      parameters:
+        - $ref: '#/components/parameters/PackageId'
+      responses:
+        '200':
+          description: Immutable evidence-backed package, prepare only
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ActionPackage'}
+        '404': {description: Not found or not owned by user}
+        '410': {description: Package expired and no longer actionable}

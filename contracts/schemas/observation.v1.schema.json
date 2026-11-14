@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goalpulse.dev/schemas/observation.v1.schema.json",
+  "title": "observation.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "observation_id",
+    "source_id",
+    "source_url",
+    "provider",
+    "extraction_method",
+    "observed_at",
+    "product_name",
+    "selling_unit",
+    "unit_price_eur_cents",
+    "availability",
+    "delivery_to_fi",
+    "shipping_eur_cents",
+    "tax_eur_cents",
+    "evidence"
+  ],
+  "properties": {
+    "observation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "source_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://"
+    },
+    "provider": {
+      "enum": [
+        "context_dev",
+        "fixture"
+      ]
+    },
+    "extraction_method": {
+      "enum": [
+        "search",
+        "scrape",
+        "monitor",
+        "fixture"
+      ]
+    },
+    "provider_request_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "product_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "brand": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "selling_unit": {
+      "enum": [
+        "pcs",
+        "kg",
+        "L"
+      ]
+    },
+    "unit_price_eur_cents": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monetary value in integer EUR cents, not floating-point euros."
+    },
+    "availability": {
+      "enum": [
+        "in_stock",
+        "out_of_stock",
+        "unknown"
+      ]
+    },
+    "delivery_to_fi": {
+      "enum": [
+        "yes",
+        "no",
+        "unknown"
+      ]
+    },
+    "shipping_eur_cents": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Monetary value in integer EUR cents, not floating-point euros."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tax_eur_cents": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Monetary value in integer EUR cents, not floating-point euros."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text_excerpt",
+        "reliability"
+      ],
+      "properties": {
+        "text_excerpt": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "reliability": {
+          "enum": [
+            "unverified",
+            "checked",
+            "disputed"
+          ]
+        },
+        "capture_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        }
+      }
+    }
+  }
+}

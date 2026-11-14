@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goalpulse.dev/schemas/domain-event.v1.schema.json",
+  "title": "domain-event.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "occurred_at",
+    "producer",
+    "correlation_id",
+    "aggregate_id",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_type": {
+      "enum": [
+        "goal.activated.v1",
+        "evidence.updated.v1",
+        "goal.evaluated.v1",
+        "goal.opportunity_verified.v1"
+      ]
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "enum": [
+        "goal-management",
+        "data-evidence",
+        "goal-evaluation"
+      ]
+    },
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "goal.activated.v1"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "producer": {
+            "const": "goal-management"
+          },
+          "payload": {
+            "type": "object",
+            "required": [
+              "goal_id",
+              "goal_version"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "goal_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "goal_version": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "evidence.updated.v1"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "producer": {
+            "const": "data-evidence"
+          },
+          "payload": {
+            "type": "object",
+            "required": [
+              "source_id",
+              "observation_id"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "source_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "observation_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "goal.evaluated.v1"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "producer": {
+            "const": "goal-evaluation"
+          },
+          "payload": {
+            "type": "object",
+            "required": [
+              "goal_id",
+              "goal_version",
+              "evaluation_id",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "goal_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "goal_version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "evaluation_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "status": {
+                "enum": [
+                  "satisfied",
+                  "unsatisfied",
+                  "unknown"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "goal.opportunity_verified.v1"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "producer": {
+            "const": "goal-evaluation"
+          },
+          "payload": {
+            "type": "object",
+            "required": [
+              "goal_id",
+              "goal_version",
+              "evaluation_id"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "goal_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "goal_version": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "evaluation_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

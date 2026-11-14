@@ -1,0 +1,19 @@
+{
+  "session_id": "ae000000-0000-4000-8000-000000000003",
+  "owner_user_id": "ae000000-0000-4000-8000-000000000001",
+  "revision": 1,
+  "state": "collecting",
+  "candidate_goal": {
+    "goal_type": "product_purchase",
+    "product_query": "RTX 5070",
+    "budget_eur": 600
+  },
+  "missing_fields": [
+    "delivery_country",
+    "include_shipping_and_tax",
+    "match_policy",
+    "product_condition"
+  ],
+  "next_question": "Should I include shipping and taxes to Finland in your EUR 600 budget?",
+  "ready_for_confirmation": false
+}

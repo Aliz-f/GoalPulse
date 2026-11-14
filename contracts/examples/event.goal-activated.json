@@ -1,0 +1,13 @@
+{
+  "event_id": "ae000000-0000-4000-8000-000000000009",
+  "schema_version": 1,
+  "occurred_at": "2026-11-14T10:00:00Z",
+  "correlation_id": "ae000000-0000-4000-8000-000000000002",
+  "event_type": "goal.activated.v1",
+  "producer": "goal-management",
+  "aggregate_id": "ae000000-0000-4000-8000-000000000002",
+  "payload": {
+    "goal_id": "ae000000-0000-4000-8000-000000000002",
+    "goal_version": 1
+  }
+}

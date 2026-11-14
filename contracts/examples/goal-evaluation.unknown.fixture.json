@@ -1,0 +1,34 @@
+{
+  "evaluation_id": "ae000000-0000-4000-8000-000000000008",
+  "goal_id": "ae000000-0000-4000-8000-000000000002",
+  "goal_version": 1,
+  "evaluated_at": "2026-11-14T10:00:00Z",
+  "status": "unknown",
+  "conditions": [
+    {
+      "code": "shipping_total",
+      "status": "unknown",
+      "reason": "Missing shipping quote",
+      "observation_ids": [
+        "ae000000-0000-4000-8000-000000000005"
+      ]
+    },
+    {
+      "code": "availability",
+      "status": "unknown",
+      "reason": "Availability missing",
+      "observation_ids": [
+        "ae000000-0000-4000-8000-000000000005"
+      ]
+    }
+  ],
+  "candidate_observation_ids": [
+    "ae000000-0000-4000-8000-000000000005"
+  ],
+  "is_opportunity_verified": false,
+  "progress": {
+    "metric": "not_applicable",
+    "value": null,
+    "unit": "none"
+  }
+}

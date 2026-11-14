@@ -1,0 +1,762 @@
+version: 1
+status: planned
+owners:
+  1: Developer 1 — Core & Infrastructure
+  2: Developer 2 — AI & Frontend
+  3: Developer 3 — Web Intelligence
+  4: Developer 4 — Decision & Actions
+tasks:
+- id: D1-PL-01
+  title: Review and freeze cross-service internal API proposal
+  owner: 1
+  priority: P0
+  stage_hint: FIRST
+  status: todo
+  dependencies: []
+  dependencies_note: none; do this with D2, D3, D4 for review.
+  allowed_paths: '`docs/adr/`, `docs/implementation/DECISIONS.md`, `contracts/openapi/`
+    in a separately approved PR, tests for contracts.'
+  implementation: review `internal.proposed.v1.yaml`, confirm principal/auth model,
+    failure responses, GETs/POSTs, event naming; file ICP-01/08; collect affected-owner
+    approvals; publish an accepted contract artifact and machine-readable examples.
+    Do not mutate frozen existing v1.
+  acceptance: every consumer can generate a mock request/response from same accepted
+    spec; service identity rules and consent are documented; contract checks pass.
+  source: tasks/developer-1.md
+- id: D1-PL-02
+  title: Local platform, DB isolation and RabbitMQ queues
+  owner: 1
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-PL-01
+  dependencies_note: D1-PL-01 design signoff on auth/transport (can scaffold beforehand).
+  allowed_paths: '`infrastructure/`, root approved env examples, `services/goal-management/`
+    infra test config.'
+  implementation: Docker Compose startup for RabbitMQ and PostgreSQL; separate logical
+    DB and per-service least-privileged credentials (no shared production admin);
+    configure exchange `goalpulse.events`, four queues and DLQ policy, durable messages,
+    publisher confirms, manual ACK; add health/runbook.
+  acceptance: '`docker compose ... config/up/ps` healthy on team machine; each service
+    role denied SQL access to other DBs; published fixture routes to correct consumer
+    queue; re-delivery observable.'
+  source: tasks/developer-1.md
+- id: D1-PL-03
+  title: JWT authentication and service-to-service authorization
+  owner: 1
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-PL-01
+  dependencies_note: D1-PL-01 (ICP-08), can run alongside PL-02.
+  allowed_paths: approved Gateway path, `infrastructure/`, security test files.
+  implementation: select external issuer or signed dev test issuer; validate issuer/audience/signature/expiry;
+    map claims to canonical owner UUID; authenticate internal services separately
+    and permit only their scoped methods; correlation IDs.
+  acceptance: invalid/expired JWT=401, forged user header ignored, unauthenticated
+    internal read forbidden, test user B cannot access user A goal.
+  source: tasks/developer-1.md
+- id: D1-GM-01
+  title: Goal DB tables and migration
+  owner: 1
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-PL-02
+  dependencies_note: D1-PL-02, frozen GoalSpec.
+  allowed_paths: '`services/goal-management/`.'
+  implementation: service app skeleton, Alembic or chosen migration tooling by approved
+    choice, tables `goals`, `goal_versions`, `projection`, `inbox`, `outbox`, constraints
+    and repositories.
+  acceptance: up/down reversible migration in isolated dev DB, unique confirmed_session_id
+    and `(goal_id,version)` enforced, repo tests pass.
+  source: tasks/developer-1.md
+- id: D1-GM-02
+  title: Authenticated internal GoalSpec/runtime read API
+  owner: 1
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-PL-01
+  - D1-PL-03
+  - D1-GM-01
+  dependencies_note: D1-PL-01, D1-PL-03, D1-GM-01.
+  allowed_paths: '`services/goal-management/`.'
+  implementation: implement accepted `/internal/v1/goals/{id}/versions/{v}`, `/runtime`,
+    `/active` pagination; strict DTO and service auth.
+  acceptance: fixture GoalSpec loads by version; runtime active/paused correct; DM/GE
+    mock consumer contract tests pass; 403 on unauthorized M2M.
+  source: tasks/developer-1.md
+- id: D1-GM-03
+  title: Confirm draft revision & atomic activation outbox
+  owner: 1
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-GM-01
+  - D1-PL-03
+  - D2-GI-04
+  dependencies_note: D1-GM-01, D1-PL-03, accepted GI candidate interface; coordinate
+    with D2-GI-04.
+  allowed_paths: '`services/goal-management/`.'
+  implementation: public POST confirm handler; fetch GI ready candidate, compare owner/revision,
+    deterministic construction/validation of GoalSpec, immutable storage + outbox
+    in single DB transaction, concurrent idempotency by session ID.
+  acceptance: valid confirm=201 + outbox event; stale/incomplete=409, invalid=422,
+    foreign session=404; two concurrent confirms create one goal; RabbitMQ outage
+    doesn't lose activation.
+  source: tasks/developer-1.md
+- id: D1-GM-04
+  title: User Goal read/list and lifecycle
+  owner: 1
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-GM-01
+  - D1-PL-03
+  dependencies_note: D1-GM-01, D1-PL-03.
+  allowed_paths: '`services/goal-management/`.'
+  implementation: frozen `GET /v1/goals`, `GET /v1/goals/{id}`, `PATCH .../lifecycle`
+    with allowed state transition matrix; optimized owner filtering.
+  acceptance: 200/204, valid pagination/filter behavior per frozen contract, invalid
+    terminal transition=409; cross-user access denied.
+  source: tasks/developer-1.md
+- id: D1-GM-05
+  title: Outbox publisher and `goal.evaluated` projection consumer
+  owner: 1
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-GM-01
+  - D1-PL-02
+  dependencies_note: D1-GM-01, D1-PL-02.
+  allowed_paths: '`services/goal-management/`.'
+  implementation: publish exact `goal.activated.v1` envelope with publisher confirm,
+    retry; process `goal.evaluated.v1` with inbox dedup; update current-version projection
+    only.
+  acceptance: duplicate events safe, old version ignored, persisted outbox eventually
+    delivered after broker restart, never marks goal completed automatically.
+  source: tasks/developer-1.md
+- id: D1-GW-01
+  title: Public API Gateway routing, errors and security
+  owner: 1
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-PL-03
+  dependencies_note: D1-PL-03, frozen gateway OpenAPI and service mock ports.
+  allowed_paths: approved Gateway path, `infrastructure/`, Gateway tests.
+  implementation: route exactly seven frozen public operations to GI/GM; enforce JWT/CORS/body
+    limits, propagate request IDs, no internal endpoint exposure.
+  acceptance: all seven documented methods route correctly through mocks; invalid
+    bearer=401; private internal paths=404/403; no Context.dev key in gateway.
+  source: tasks/developer-1.md
+- id: D1-INT-01
+  title: First mock browser-to-notification vertical slice
+  owner: 1
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-GM-03
+  - D1-GM-05
+  - D1-GW-01
+  - D2-GI-04
+  - D2-FE-01
+  - D2-FE-02
+  - D3-DM-02
+  - D4-GE-03
+  dependencies_note: D1-GM-03/05, D1-GW-01, D2-GI-04, D2-FE-01/02, D3-DM-02, D4-GE-03
+    and notification mock.
+  allowed_paths: '`infrastructure/`, integration test directory, plus cross-owner
+    files only via coordinated reviewed PR.'
+  implementation: run full stack with fixture extraction→DE/GE→notification; automate
+    smoke test with fixed UUIDs; one command from README.
+  acceptance: browser/HTTP path makes approved goal and verified fixture opportunity,
+    one in-app notification; no manual DB edits; reproducible from clean boot.
+  source: tasks/developer-1.md
+- id: D1-INT-02
+  title: Cross-service failure/security test and release automation
+  owner: 1
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-INT-01
+  dependencies_note: D1-INT-01 and live integration.
+  allowed_paths: '`infrastructure/`, `.github/` with approval, cross-service `tests/integration/`.'
+  implementation: CI contract check + service test commands, broker-down recovery,
+    replay, stale-version/paused-suppression, security header/token checks, logs/correlation;
+    record NOT RUN for unavailable Docker.
+  acceptance: acceptance matrix from `11-testing-and-acceptance.md` for P0 all green;
+    no secret leaks; repeatable README; freeze release candidate.
+  source: tasks/developer-1.md
+- id: D1-DOC-01
+  title: Demo/deployment runbook and decision ledger
+  owner: 1
+  priority: P1
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-INT-01
+  dependencies_note: D1-INT-01; can write skeleton earlier.
+  allowed_paths: '`docs/`, `README.md`, approved configuration.'
+  implementation: one-command startup, env var inventory no secrets, diagram ports,
+    healthcheck, contract approval records, fallback fixture demo.
+  acceptance: another team member follows runbook on clean machine and independently
+    completes first end-to-end scenario.
+  source: tasks/developer-1.md
+- id: D2-GI-01
+  title: Draft session DB and optimistic concurrency
+  owner: 2
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-PL-03
+  dependencies_note: frozen GoalDraft, identity design D1-PL-03; can stub principal
+    meanwhile.
+  allowed_paths: '`services/goal-intelligence/`.'
+  implementation: session+messages+draft_revisions tables with per-user ownership
+    and revision counter; create/list/get typed repositories.
+  acceptance: two parallel writes with same expected_revision yield one success and
+    one 409; foreign session can't be read; revisions immutable.
+  source: tasks/developer-2.md
+- id: D2-GI-02
+  title: LLM adapter and mock provider
+  owner: 2
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies: []
+  dependencies_note: GoalDraft and model adapter design; no GM dependency.
+  allowed_paths: '`services/goal-intelligence/`.'
+  implementation: injected interface for structured model completion, bounded retries,
+    timeouts, token input limit; deterministic fixture adapter and no external calls
+    in CI.
+  acceptance: malformed model JSON, timeout, rate limit handled without marking draft
+    ready or leaking key; mock returns reproducible normalized draft.
+  source: tasks/developer-2.md
+- id: D2-GI-03
+  title: Goal compiler, required-field checker, clarification loop
+  owner: 2
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D2-GI-01
+  - D2-GI-02
+  dependencies_note: D2-GI-01/02, frozen GoalSpec.
+  allowed_paths: '`services/goal-intelligence/`.'
+  implementation: classify supported vs unsupported; extract candidate + explicit
+    constraints, Decimal EUR parsing, Pydantic/JSON schema validation, calculate missing_fields,
+    choose one next question and readiness, revision transition; no hidden defaults.
+  acceptance: product incomplete→asks shipping/condition; café incomplete→asks quantity/quality/budget;
+    travel unsupported; no auto purchase; complete candidate convertible to GoalSpec
+    for GM.
+  source: tasks/developer-2.md
+- id: D2-GI-04
+  title: Public session endpoints and internal candidate endpoint
+  owner: 2
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D2-GI-01
+  - D2-GI-03
+  - D1-PL-03
+  dependencies_note: D2-GI-01/03, approval ICP-01, service identity D1-PL-03.
+  allowed_paths: '`services/goal-intelligence/`.'
+  implementation: frozen POST session, POST message, GET session, accepted internal
+    GET candidate exact revision/ready, idempotent mark-confirmed; response models
+    strict.
+  acceptance: 201/200/409/404 as documented; GM consumer mock contract passes; candidate
+    cannot be fetched without authorized GM service identity.
+  source: tasks/developer-2.md
+- id: D2-GI-05
+  title: Prompt injection and conversation edge tests
+  owner: 2
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D2-GI-03
+  - D2-GI-04
+  dependencies_note: D2-GI-03/04.
+  allowed_paths: '`services/goal-intelligence/`.'
+  implementation: pytest cases for long prompts, malicious event/identity instructions,
+    unsupported goals, date/currency assumptions, ambiguous units, concurrent revisions,
+    user-approved default summary.
+  acceptance: tests pass with fake LLM; no invalid executable GoalSpec, no hidden
+    activation, no credentials or raw model secrets in logs.
+  source: tasks/developer-2.md
+- id: D2-FE-01
+  title: Next.js app shell and authenticated API client
+  owner: 2
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-PL-03
+  dependencies_note: frozen Gateway OpenAPI, D1-PL-03 identity selection.
+  allowed_paths: '`frontend/`.'
+  implementation: Next.js pages/components, env configuration for public gateway base
+    URL only (no private keys), typed HTTP API client generated/hand-coded from frozen
+    contracts, loading/errors.
+  acceptance: one command starts frontend, no secret in bundle, invalid session shows
+    recoverable error, JWT included safely per approved auth design.
+  source: tasks/developer-2.md
+- id: D2-FE-02
+  title: Conversational goal wizard and exact revision confirmation
+  owner: 2
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D2-FE-01
+  - D2-GI-04
+  - D1-GM-03
+  dependencies_note: D2-FE-01, D2-GI-04 endpoints/mocks, D1-GM-03 confirmation interface.
+  allowed_paths: '`frontend/`.'
+  implementation: user message input, assistant clarifying questions, missing fields,
+    canonical review with shown revision, explicit confirm button and success redirect.
+  acceptance: demo incomplete→clarified→confirmed works; stale 409 reloads current
+    summary, confirm disabled for unsupported/incomplete draft; no direct frontend
+    Context.dev calls.
+  source: tasks/developer-2.md
+- id: D2-FE-03
+  title: My Goals and evaluation state UI
+  owner: 2
+  priority: P1
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D2-FE-01
+  - D1-GM-04
+  dependencies_note: D2-FE-01, D1-GM-04, ICP-02 for history detail.
+  allowed_paths: '`frontend/`.'
+  implementation: goal list/status/freshness and details, responsive card views; use
+    frozen GoalSummary initially; condition breakdown uses only approved API extension
+    or typed mock.
+  acceptance: two goals display correctly, unknown != achieved, status != purchased,
+    no invented fulfillment percent or unsupported data; robust empty/loading/error
+    states.
+  source: tasks/developer-2.md
+- id: D2-FE-04
+  title: Notification and agent package view
+  owner: 2
+  priority: P1
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D4-NS-02
+  - D4-AI-02
+  dependencies_note: D4-NS-02, D4-AI-02, approved ICP-02 public endpoints.
+  allowed_paths: '`frontend/`.'
+  implementation: notification feed/read state, source links, audit timestamp, readable
+    prepare-only package copy/view, source recheck disclaimer.
+  acceptance: one user sees own verified offer and read-only package, other user forbidden;
+    UX does not claim order was placed; no unapproved routes merged.
+  source: tasks/developer-2.md
+- id: D3-DM-01
+  title: Context.dev provider spike and adapter interface
+  owner: 3
+  priority: P0
+  stage_hint: EARLY
+  status: todo
+  dependencies: []
+  dependencies_note: user API key in local env (already tested connection), no other
+    service code.
+  allowed_paths: '`services/discovery-monitoring/`, sanitized local test reports in
+    assigned directory.'
+  implementation: injectable provider client (search, scrape, create monitor, fetch
+    run), auth/timeout/backoff; run one real public product URL and record redacted
+    `success`/cache/extraction coverage; wrap requests behind test fake.
+  acceptance: '`example.com` auth smoke + >=1 real product with named, priced data
+    or documented extraction limitation; no key in logs/repo; tests run without network.'
+  source: tasks/developer-3.md
+- id: D3-DM-02
+  title: Source registry, subscriptions and source internal APIs
+  owner: 3
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D1-GM-02
+  dependencies_note: accepted ICP-01, D1-GM-02 mocks.
+  allowed_paths: '`services/discovery-monitoring/`.'
+  implementation: schema/migrations `sources`,`goal_source_links`, URL canonicalization+public
+    DNS guard, subscribe `(goal_id,version,source_id)` dedup, internal GET subscriptions/source
+    metadata.
+  acceptance: source shared between two goals as one source; active subscriptions
+    list correct versions; SSRF and redirect private-IP blocked; no secret in API
+    response.
+  source: tasks/developer-3.md
+- id: D3-DM-03
+  title: GoalActivated handler, discovery and initial scrape
+  owner: 3
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D3-DM-01
+  - D3-DM-02
+  - D1-GM-02
+  - D3-DE-02
+  dependencies_note: D3-DM-01/02, D1-GM-02, D3-DE-02 endpoint mock.
+  allowed_paths: '`services/discovery-monitoring/`.'
+  implementation: consume exact `goal.activated.v1`, fetch GoalSpec, bounded product
+    discovery, source links, first fresh extraction submitted to DE. Create baseline
+    separately.
+  acceptance: double event creates no duplicate links; one activation yields initial
+    DE extraction independently of monitor change; unsupported delivery country rejected/unknown,
+    no fabricated prices.
+  source: tasks/developer-3.md
+- id: D3-DM-04
+  title: Context monitor scheduler and subscription reconciliation
+  owner: 3
+  priority: P1
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D3-DM-02
+  - D3-DM-03
+  dependencies_note: D3-DM-02/03, approved M2M active-goal list; Context.dev docs.
+  allowed_paths: '`services/discovery-monitoring/`.'
+  implementation: schedule page/search monitors only as supported, persist provider
+    IDs+secrets, dedup shared monitors, re-sync active/paused/cancelled goal links
+    from GM until lifecycle events approved.
+  acceptance: provider initial baseline recorded, not reported as change; pause one
+    of two subscribed goals leaves monitor for other; once all links inactive, monitor
+    paused safely.
+  source: tasks/developer-3.md
+- id: D3-DM-05
+  title: Provider signed webhook receiver and retry
+  owner: 3
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D3-DM-01
+  - D3-DM-04
+  dependencies_note: D3-DM-01, D3-DM-04 monitor secret model.
+  allowed_paths: '`services/discovery-monitoring/` and associated test fixtures.'
+  implementation: signature/timestamp verification, per-monitor secret mapping, unique
+    delivery inbox, queue follow-up extraction, bounded retry+DLQ and request-body
+    limits.
+  acceptance: valid signed delivery stored once and quickly 2xx, invalid signature
+    rejected, duplicates produce one job, failures don't create successful evidence.
+  source: tasks/developer-3.md
+- id: D3-DM-06
+  title: Monitoring health/cost controls and Check Now internal dev hook
+  owner: 3
+  priority: P1
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D3-DM-03
+  - D3-DM-04
+  dependencies_note: D3-DM-03/04, signed-off service-only Check Now API design.
+  allowed_paths: '`services/discovery-monitoring/`.'
+  implementation: credit counters, bounded concurrent requests, source TTL, cost-aware
+    scheduling and rate limit, explicit development-only 'check now' control (not
+    public).
+  acceptance: 429 respects Retry-After; no unbounded rescrapes; invocation triggers
+    one evaluated source check and exposes accurate health/error state.
+  source: tasks/developer-3.md
+- id: D3-DE-01
+  title: Data & Evidence migration/storage + extractor failure ledger
+  owner: 3
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies: []
+  dependencies_note: frozen Observation.v1, D1 platform DB setup.
+  allowed_paths: '`services/data-evidence/`.'
+  implementation: attempts, immutable observations, provenance, outbox, dedup fingerprint
+    and indexes; migrations.
+  acceptance: known-good Observation passes schema; missing unit price creates attempt
+    error, no fake observation; idempotent submission.
+  source: tasks/developer-3.md
+- id: D3-DE-02
+  title: Internal POST extractions + normalization rules
+  owner: 3
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D3-DE-01
+  dependencies_note: D3-DE-01, internal API approval ICP-01.
+  allowed_paths: '`services/data-evidence/`.'
+  implementation: typed ExtractionSubmission, Decimal money, normalized per `kg/L/pcs`
+    unit, stock/delivery/tax/shipping null semantics, provenance and reliability evaluation;
+    store valid strict Observation.
+  acceptance: pack size conversions tested, tax inclusive not added twice, missing
+    tax/shipping remains unknown, invalid country/currency gracefully rejected, 201/202
+    correct.
+  source: tasks/developer-3.md
+- id: D3-DE-03
+  title: Observation read endpoints and authorization
+  owner: 3
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D3-DE-01
+  dependencies_note: D3-DE-01 and approved internal API.
+  allowed_paths: '`services/data-evidence/`.'
+  implementation: GET by observation_id and by source_id with bounded pagination/newest
+    ordering, M2M authorization, strict DTO.
+  acceptance: GE consumer mocks and AI fetch exactly strict schema, cross-service
+    DB unused, 403 on unauthenticated request.
+  source: tasks/developer-3.md
+- id: D3-DE-04
+  title: EvidenceUpdated transactional outbox/publisher
+  owner: 3
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D3-DE-01
+  - D3-DE-02
+  - D1-PL-02
+  dependencies_note: D3-DE-01/02, RabbitMQ baseline D1-PL-02.
+  allowed_paths: '`services/data-evidence/`.'
+  implementation: atomic observation+outbox, publisher confirms, retries and inbox/attempt
+    dedup, exact `evidence.updated.v1` envelope.
+  acceptance: observed ID exists before event, one logical event per unique observation,
+    broker outage recovered, event validates frozen contract.
+  source: tasks/developer-3.md
+- id: D3-DE-05
+  title: Evidence quality/freshness and edge-case tests
+  owner: 3
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D3-DE-02
+  - D3-DE-03
+  - D3-DE-04
+  dependencies_note: D3-DE-02/03/04.
+  allowed_paths: '`services/data-evidence/`.'
+  implementation: tests for cached provider time, no price, unknown availability,
+    seller tax ambiguity, packaging, unverified/disputed evidence, duplicate provider
+    request, mixed source signals.
+  acceptance: GE never sees false fresh/checked price; real URL extraction provides
+    provenance and audited limitations.
+  source: tasks/developer-3.md
+- id: D4-GE-01
+  title: Evaluation DB, pure evaluator architecture and event adapter
+  owner: 4
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies: []
+  dependencies_note: frozen schemas/Event routing, RabbitMQ mock; none of live Context.dev.
+  allowed_paths: '`services/goal-evaluation/`.'
+  implementation: migrations for evaluations/condition_results/fingerprints/inbox/outbox;
+    pure `GoalEvaluator` base interface and dispatcher; exact schema validation; event
+    consume with injectable HTTP clients.
+  acceptance: module importable/testable without network, goal type dispatch strict,
+    duplicate event inbox safe, no direct cross-service SQL.
+  source: tasks/developer-4.md
+- id: D4-GE-02
+  title: Source subscription + GoalSpec + evidence consumers
+  owner: 4
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D3-DM-02
+  - D3-DE-03
+  - D1-GM-02
+  dependencies_note: accepted ICP-01, D3-DM-02 and D3-DE-03 consumer mocks, D1-GM-02.
+  allowed_paths: '`services/goal-evaluation/`.'
+  implementation: consume `evidence.updated.v1`, fetch DM source subscriber versions,
+    GM runtime/latest version, DE observations and strict GoalSpec; reject old/paused/terminal
+    goals.
+  acceptance: for source shared by two active goals evaluate both; for paused or old
+    version emit no verified event; failure/retry bounded and never query another
+    DB.
+  source: tasks/developer-4.md
+- id: D4-GE-03
+  title: ProductPurchaseEvaluator
+  owner: 4
+  priority: P0
+  stage_hint: FIRST DOMAIN
+  status: todo
+  dependencies:
+  - D4-GE-01
+  dependencies_note: D4-GE-01, frozen specs and fixture observations.
+  allowed_paths: '`services/goal-evaluation/`.'
+  implementation: deterministic model/attribute matching, condition, seller allow/block,
+    availability, FI shipping, tax/shipping known, quantity total, evidence freshness/reliability,
+    tri-state reason list.
+  acceptance: good GPU fixture verifies; >budget/wrong model=unsatisfied; unknown
+    shipping/stock/tax, stale/unverified=unknown; strict GoalEvaluation schema and
+    observation IDs.
+  source: tasks/developer-4.md
+- id: D4-GE-04
+  title: Persist evaluation, outbox events and opportunity fingerprint
+  owner: 4
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D4-GE-01
+  - D4-GE-02
+  - D4-GE-03
+  dependencies_note: D4-GE-01/02/03, RabbitMQ baseline.
+  allowed_paths: '`services/goal-evaluation/`.'
+  implementation: persist immutable evaluation + `goal.evaluated.v1` outbox every
+    meaningful result; verified fingerprint unique and outbox `goal.opportunity_verified.v1`
+    only once for same offer; publish with confirms/retry; M2M GET `/internal/v1/evaluations/{id}`.
+  acceptance: event envelope validates; same event/offer replay→one logical verification;
+    broker restart recovers; NS/AI retrieve immutable evaluation.
+  source: tasks/developer-4.md
+- id: D4-GE-05
+  title: RecurringProcurementEvaluator
+  owner: 4
+  priority: P1
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D4-GE-03
+  - D3-DE-02
+  dependencies_note: D4-GE-03, D3-DE-02 packaging/unit semantics, multi-seller fixtures.
+  allowed_paths: '`services/goal-evaluation/`.'
+  implementation: deterministic bounded basket optimizer for list of items, compatible
+    quality/unit, max sellers, delivery/tax, per-merchant shipping once, cents rounding;
+    progress metric `savings_progress` only if semantically valid.
+  acceptance: cheapest complete basket found under constraints; missing item or unknown
+    shipping not verified; 3-vendor vs 1-vendor compares full totals; tie-break deterministic;
+    computation bounded for MVP.
+  source: tasks/developer-4.md
+- id: D4-GE-06
+  title: Evaluation edge/security/reliability tests
+  owner: 4
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D4-GE-02
+  - D4-GE-03
+  - D4-GE-04
+  - D4-GE-05
+  dependencies_note: D4-GE-02/03/04, D4-GE-05 for basket tests.
+  allowed_paths: '`services/goal-evaluation/`.'
+  implementation: stale version, paused during evaluate, duplicate events, freshness,
+    cache timestamp, quantity rounding, tax/shipping, faulty provider/HTTP, forced
+    outbox retry.
+  acceptance: all P0 test matrix cases for evaluator green; no false verified opportunity
+    on incomplete info.
+  source: tasks/developer-4.md
+- id: D4-NS-01
+  title: Notification DB, event consumer and dedup policy
+  owner: 4
+  priority: P0
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D4-GE-04
+  - D1-GM-02
+  dependencies_note: D4-GE-04 evaluation read, D1-GM-02 runtime, accepted internal
+    API.
+  allowed_paths: '`services/notification/`.'
+  implementation: tables, consume exact verified event, retrieve runtime/evaluation,
+    stable offer fingerprint, DB uniqueness and inbox, in-app notification status.
+  acceptance: one event→one notification, repeated event→zero duplicates, stale/paused
+    version→zero notifications, goal owner derived from GM.
+  source: tasks/developer-4.md
+- id: D4-NS-02
+  title: In-app read channel with approved Gateway extension
+  owner: 4
+  priority: P1
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D4-NS-01
+  dependencies_note: D4-NS-01, ICP-02 signoff, D1 Gateway, D2 UI.
+  allowed_paths: '`services/notification/` (Gateway modifications only coordinated
+    D1-owned PR).'
+  implementation: protected list and mark-read handlers, sorted pagination, robust
+    failure state; read-only storage query for own user.
+  acceptance: frontend lists own notification and marks read, different user denied;
+    no undocumented public route merged.
+  source: tasks/developer-4.md
+- id: D4-NS-03
+  title: Channel retry/preference policy & tests
+  owner: 4
+  priority: P1
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D4-NS-01
+  - D4-NS-02
+  dependencies_note: D4-NS-01/02.
+  allowed_paths: '`services/notification/`.'
+  implementation: preferences for in-app, optional deferred email opt-in, delivery
+    attempts, bounded retry and status metrics.
+  acceptance: email never sent without user opt-in; channel failures stored; duplicate
+    event does not repeat side effects; no order completion claim.
+  source: tasks/developer-4.md
+- id: D4-AI-01
+  title: Immutable read-only Action Package builder
+  owner: 4
+  priority: P1
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D4-GE-04
+  - D1-GM-02
+  - D3-DE-03
+  dependencies_note: D4-GE-04 + D1-GM-02 + D3-DE-03, accepted package shape via ICP-01/02.
+  allowed_paths: '`services/agent-integration/`.'
+  implementation: DB migrations, consume verified event, fetch goal/version/evidence,
+    compute safe payload, expiry, condition IDs, requires approval, auto_execute=false,
+    unique goal/version/evaluation.
+  acceptance: known verified fixture builds correct package, incomplete/stale/paused
+    blocked, no payment secrets or checkout execution, repeat event idempotent.
+  source: tasks/developer-4.md
+- id: D4-AI-02
+  title: Secure Agent Package read endpoint
+  owner: 4
+  priority: P1
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D4-AI-01
+  dependencies_note: D4-AI-01, D1 identity, ICP-02 public API approval.
+  allowed_paths: '`services/agent-integration/` (Gateway owner coordinates route addition).'
+  implementation: authenticated package GET, owner validation, expiry semantics, safe
+    source URLs/evidence references, copy-ready JSON.
+  acceptance: owner sees package with revalidate notice, user B gets denied, expired
+    package not presented as actionable.
+  source: tasks/developer-4.md
+- id: D4-AI-03
+  title: Handoff, notification and non-purchase safety integration tests
+  owner: 4
+  priority: P1
+  stage_hint: ''
+  status: todo
+  dependencies:
+  - D4-NS-01
+  - D4-NS-02
+  - D4-AI-01
+  - D4-AI-02
+  dependencies_note: D4-NS-01/02, D4-AI-01/02.
+  allowed_paths: '`services/notification/`, `services/agent-integration/`, their test
+    scopes.'
+  implementation: event replay, goal pause race, out-of-order version, package expiry,
+    no purchase/credential calls, preparation semantics, test against fake GM/GE/DE.
+  acceptance: one verified event→one safe notification + one safe package; repeated/old
+    event→no duplicate/no transaction.
+  source: tasks/developer-4.md

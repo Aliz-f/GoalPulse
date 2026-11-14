@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goalpulse.dev/schemas/goal-evaluation.v1.schema.json",
+  "title": "goal-evaluation.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evaluation_id",
+    "goal_id",
+    "goal_version",
+    "evaluated_at",
+    "status",
+    "conditions",
+    "candidate_observation_ids",
+    "is_opportunity_verified"
+  ],
+  "properties": {
+    "evaluation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "goal_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "goal_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "satisfied",
+        "unsatisfied",
+        "unknown"
+      ]
+    },
+    "conditions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "status",
+          "reason",
+          "observation_ids"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": [
+              "satisfied",
+              "unsatisfied",
+              "unknown"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "observation_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      }
+    },
+    "candidate_observation_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    "is_opportunity_verified": {
+      "type": "boolean"
+    },
+    "progress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric",
+        "value",
+        "unit"
+      ],
+      "properties": {
+        "metric": {
+          "enum": [
+            "savings_progress",
+            "budget_gap",
+            "not_applicable"
+          ]
+        },
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "unit": {
+          "enum": [
+            "percent",
+            "eur_cents",
+            "none"
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "is_opportunity_verified": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "satisfied"
+          },
+          "candidate_observation_ids": {
+            "minItems": 1
+          },
+          "conditions": {
+            "items": {
+              "properties": {
+                "status": {
+                  "const": "satisfied"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "unknown",
+              "unsatisfied"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "is_opportunity_verified": {
+            "const": false
+          }
+        }
+      }
+    }
+  ]
+}

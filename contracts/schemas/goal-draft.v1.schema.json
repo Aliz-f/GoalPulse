@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goalpulse.dev/schemas/goal-draft.v1.schema.json",
+  "title": "goal-draft.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "session_id",
+    "owner_user_id",
+    "revision",
+    "state",
+    "candidate_goal",
+    "missing_fields",
+    "next_question",
+    "ready_for_confirmation"
+  ],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "owner_user_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "enum": [
+        "collecting",
+        "ready_for_confirmation",
+        "confirmed",
+        "abandoned"
+      ]
+    },
+    "candidate_goal": {
+      "type": "object",
+      "description": "Incomplete, untrusted intermediate LLM output; not valid as an activated goal."
+    },
+    "missing_fields": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "next_question": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ready_for_confirmation": {
+      "type": "boolean"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ready_for_confirmation": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "missing_fields": {
+            "maxItems": 0
+          },
+          "next_question": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "ready_for_confirmation"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "ready_for_confirmation": {
+            "const": true
+          }
+        }
+      }
+    }
+  ]
+}

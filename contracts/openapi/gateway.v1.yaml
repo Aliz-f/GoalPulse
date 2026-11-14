@@ -1,0 +1,185 @@
+openapi: 3.1.0
+info:
+  title: GoalPulse API — initial contract (NOT implemented)
+  version: 1.0.0
+  description: >-
+    Gateway routes requests to Goal Intelligence or Goal Management.
+    Every endpoint requires authenticated user context. User IDs in schema
+    responses come from the identity provider, not untrusted client input.
+servers:
+  - url: http://localhost:8000
+security:
+  - BearerAuth: []
+paths:
+  /v1/goal-sessions:
+    post:
+      tags: [Goal Intelligence]
+      operationId: createGoalSession
+      description: Create an LLM clarification session. No active Goal yet.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [initial_message]
+              properties:
+                initial_message: {type: string, minLength: 3}
+      responses:
+        '201':
+          description: New draft session
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/goal-draft.v1.schema.json'
+        '401': {description: Unauthorized}
+  /v1/goal-sessions/{session_id}/messages:
+    post:
+      tags: [Goal Intelligence]
+      operationId: sendGoalMessage
+      description: Append user message, update draft revision and ask next clarification.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [message, expected_revision]
+              properties:
+                message: {type: string, minLength: 1}
+                expected_revision: {type: integer, minimum: 1}
+      responses:
+        '200':
+          description: Updated draft
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/goal-draft.v1.schema.json'
+        '409': {description: Stale revision, reload draft}
+  /v1/goal-sessions/{session_id}:
+    get:
+      tags: [Goal Intelligence]
+      operationId: getGoalSession
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Current draft state
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/goal-draft.v1.schema.json'
+        '404': {description: Not found or not owned by user}
+  /v1/goal-sessions/{session_id}/confirm:
+    post:
+      tags: [Goal Management]
+      operationId: confirmGoal
+      description: >-
+        Explicit user confirmation; Goal Management fetches the ready candidate
+        from Goal Intelligence through authenticated internal API, validates it
+        against GoalSpec schema, saves version 1, and emits goal.activated.v1
+        using an outbox (Phase 2). The client cannot supply arbitrary spec.
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision, approved]
+              properties:
+                expected_revision: {type: integer, minimum: 1}
+                approved: {const: true}
+      responses:
+        '201':
+          description: Confirmed and activated GoalSpec
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/goal-spec.v1.schema.json'
+        '409': {description: Draft incomplete, stale, or already confirmed}
+        '422': {description: GoalSpec validation failed}
+  /v1/goals:
+    get:
+      tags: [Goal Management]
+      operationId: listGoals
+      parameters:
+        - in: query
+          name: status
+          schema: {type: string, enum: [active, paused, completed, cancelled]}
+      responses:
+        '200':
+          description: Goals owned by current user
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/GoalSummary'}
+  /v1/goals/{goal_id}:
+    get:
+      tags: [Goal Management]
+      operationId: getGoal
+      parameters:
+        - $ref: '#/components/parameters/GoalId'
+      responses:
+        '200':
+          description: Immutable latest approved goal version
+          content:
+            application/json:
+              schema:
+                $ref: '../schemas/goal-spec.v1.schema.json'
+        '404': {description: Not found or not owned by user}
+  /v1/goals/{goal_id}/lifecycle:
+    patch:
+      tags: [Goal Management]
+      operationId: updateGoalLifecycle
+      parameters:
+        - $ref: '#/components/parameters/GoalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action]
+              properties:
+                action: {type: string, enum: [pause, resume, cancel, complete]}
+      responses:
+        '204': {description: Lifecycle transition accepted}
+        '409': {description: Invalid transition}
+components:
+  parameters:
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    GoalId:
+      name: goal_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    GoalSummary:
+      type: object
+      additionalProperties: false
+      required: [goal_id, title, version, lifecycle, opportunity_status]
+      properties:
+        goal_id: {type: string, format: uuid}
+        title: {type: string}
+        version: {type: integer, minimum: 1}
+        lifecycle: {type: string, enum: [active, paused, completed, cancelled]}
+        opportunity_status: {type: string, enum: [not_found, candidate, verified, unknown]}
+        last_evaluated_at: {type: [string, 'null'], format: date-time}

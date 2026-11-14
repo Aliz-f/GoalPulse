@@ -1,0 +1,295 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://goalpulse.dev/schemas/goal-spec.v1.schema.json",
+  "title": "goal-spec.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "goal_id",
+    "owner_user_id",
+    "version",
+    "title",
+    "goal_type",
+    "criteria",
+    "monitoring",
+    "actions",
+    "approved_at"
+  ],
+  "properties": {
+    "goal_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "owner_user_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 3
+    },
+    "goal_type": {
+      "enum": [
+        "product_purchase",
+        "recurring_procurement"
+      ]
+    },
+    "criteria": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "product",
+            "quantity",
+            "max_total_eur_cents",
+            "delivery_country",
+            "include_shipping_and_tax"
+          ],
+          "properties": {
+            "kind": {
+              "const": "product_purchase"
+            },
+            "product": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "query",
+                "match_policy",
+                "condition"
+              ],
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "match_policy": {
+                  "enum": [
+                    "exact_model",
+                    "equivalent_allowed"
+                  ]
+                },
+                "condition": {
+                  "enum": [
+                    "new",
+                    "any"
+                  ]
+                },
+                "required_attributes": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "quantity": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_total_eur_cents": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Monetary value in integer EUR cents, not floating-point euros."
+            },
+            "delivery_country": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$"
+            },
+            "include_shipping_and_tax": {
+              "const": true
+            },
+            "allowed_seller_domains": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "format": "hostname"
+              }
+            },
+            "blocked_seller_domains": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "format": "hostname"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "items",
+            "cadence",
+            "current_total_eur_cents",
+            "max_total_eur_cents",
+            "delivery_country",
+            "include_shipping_and_tax"
+          ],
+          "properties": {
+            "kind": {
+              "const": "recurring_procurement"
+            },
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "quantity",
+                  "unit",
+                  "requirements"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 2
+                  },
+                  "quantity": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "unit": {
+                    "enum": [
+                      "pcs",
+                      "kg",
+                      "L"
+                    ]
+                  },
+                  "requirements": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            },
+            "cadence": {
+              "const": "monthly"
+            },
+            "current_total_eur_cents": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Monetary value in integer EUR cents, not floating-point euros."
+            },
+            "max_total_eur_cents": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Monetary value in integer EUR cents, not floating-point euros."
+            },
+            "delivery_country": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$"
+            },
+            "include_shipping_and_tax": {
+              "const": true
+            },
+            "max_distinct_sellers": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            }
+          }
+        }
+      ]
+    },
+    "monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frequency_minutes",
+        "max_evidence_age_minutes"
+      ],
+      "properties": {
+        "frequency_minutes": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 10080
+        },
+        "max_evidence_age_minutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 10080
+        }
+      }
+    },
+    "actions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "notify_user",
+        "agent_handoff",
+        "auto_purchase"
+      ],
+      "properties": {
+        "notify_user": {
+          "type": "boolean"
+        },
+        "agent_handoff": {
+          "const": "prepare_only"
+        },
+        "auto_purchase": {
+          "const": false
+        }
+      }
+    },
+    "approved_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "goal_type": {
+            "const": "product_purchase"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "criteria": {
+            "properties": {
+              "kind": {
+                "const": "product_purchase"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "goal_type": {
+            "const": "recurring_procurement"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "criteria": {
+            "properties": {
+              "kind": {
+                "const": "recurring_procurement"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

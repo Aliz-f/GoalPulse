@@ -1,0 +1,23 @@
+exchange: goalpulse.events
+exchange_type: topic
+durable: true
+version: 1
+routing:
+  goal.activated.v1:
+    producer: goal-management
+    consumers: [discovery-monitoring]
+  evidence.updated.v1:
+    producer: data-evidence
+    consumers: [goal-evaluation]
+  goal.evaluated.v1:
+    producer: goal-evaluation
+    consumers: [goal-management]
+  goal.opportunity_verified.v1:
+    producer: goal-evaluation
+    consumers: [notification, agent-integration]
+reliability:
+  delivery: at-least-once
+  publisher_confirms: true
+  consumer_manual_ack: true
+  idempotency_field: event_id
+  dead_letter_queue: required_in_phase_2

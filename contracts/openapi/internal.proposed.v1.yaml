@@ -1,0 +1,349 @@
+openapi: 3.1.0
+info:
+  title: GoalPulse — INTERNAL service API proposal
+  version: 0.1.0-proposed
+  description: >-
+    DRAFT for review under ICP-01. Not a frozen implementation contract until
+    Developer 1 and each affected service owner sign off. Every route requires
+    a validated machine-to-machine identity; browser access is prohibited.
+servers:
+  - url: http://internal-service.local
+security:
+  - ServiceBearer: []
+components:
+  securitySchemes:
+    ServiceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    GoalId:
+      name: goal_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Version:
+      name: version
+      in: path
+      required: true
+      schema: {type: integer, minimum: 1}
+    SourceId:
+      name: source_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ObservationId:
+      name: observation_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    EvaluationId:
+      name: evaluation_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    PackageId:
+      name: package_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code: {type: string}
+        message: {type: string}
+    GoalRuntime:
+      type: object
+      additionalProperties: false
+      required: [goal_id, current_version, lifecycle, owner_user_id]
+      properties:
+        goal_id: {type: string, format: uuid}
+        owner_user_id: {type: string, format: uuid}
+        current_version: {type: integer, minimum: 1}
+        lifecycle: {type: string, enum: [active, paused, completed, cancelled]}
+    ActiveGoal:
+      type: object
+      additionalProperties: false
+      required: [goal_id, current_version]
+      properties:
+        goal_id: {type: string, format: uuid}
+        current_version: {type: integer, minimum: 1}
+    Subscription:
+      type: object
+      additionalProperties: false
+      required: [goal_id, goal_version]
+      properties:
+        goal_id: {type: string, format: uuid}
+        goal_version: {type: integer, minimum: 1}
+    ExtractionSubmission:
+      type: object
+      additionalProperties: false
+      required: [attempt_id, source_id, source_url, provider, extraction_method, fetched_at, correlation_id, extracted]
+      properties:
+        attempt_id: {type: string, format: uuid, description: 'Unique idempotency key for a provider fetch attempt'}
+        source_id: {type: string, format: uuid}
+        source_url: {type: string, format: uri, pattern: '^https?://'}
+        provider: {type: string, enum: [context_dev, fixture]}
+        extraction_method: {type: string, enum: [search, scrape, monitor, fixture]}
+        provider_request_id: {type: [string, 'null']}
+        fetched_at: {type: string, format: date-time}
+        cache_age_ms: {type: [integer, 'null'], minimum: 0}
+        correlation_id: {type: string, format: uuid}
+        extracted:
+          type: object
+          additionalProperties: false
+          required: [product_name, unit_price_eur_cents, selling_unit, availability, delivery_to_fi, shipping_eur_cents, tax_eur_cents, evidence_excerpt]
+          properties:
+            product_name: {type: [string, 'null']}
+            brand: {type: [string, 'null']}
+            model: {type: [string, 'null']}
+            selling_unit: {type: [string, 'null'], enum: [pcs, kg, L, null]}
+            unit_price_eur_cents: {type: [integer, 'null'], minimum: 0}
+            availability: {type: string, enum: [in_stock, out_of_stock, unknown]}
+            delivery_to_fi: {type: string, enum: [yes, no, unknown]}
+            shipping_eur_cents: {type: [integer, 'null'], minimum: 0}
+            tax_eur_cents: {type: [integer, 'null'], minimum: 0}
+            evidence_excerpt: {type: string, maxLength: 1000}
+            source_capture_url: {type: [string, 'null'], format: uri}
+            evidence_reliability: {type: string, enum: [unverified, checked, disputed], description: 'Provider suggestion only; DE assigns final reliability'}
+    ExtractionReceipt:
+      type: object
+      additionalProperties: false
+      required: [accepted, reason]
+      properties:
+        accepted: {type: boolean}
+        observation_id: {type: [string, 'null'], format: uuid}
+        reason: {type: [string, 'null']}
+paths:
+  /internal/v1/goal-sessions/{session_id}/candidate:
+    get:
+      operationId: internalGetDraftCandidate
+      tags: [goal-intelligence]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - in: query
+          name: expected_revision
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        '200':
+          description: Current ready candidate at exact revision
+          content:
+            application/json:
+              schema: {$ref: '../schemas/goal-draft.v1.schema.json'}
+        '403': {description: GM service identity required}
+        '404': {description: Session not found}
+        '409': {description: Stale or incomplete draft}
+  /internal/v1/goal-sessions/{session_id}/mark-confirmed:
+    post:
+      operationId: internalMarkDraftConfirmed
+      tags: [goal-intelligence]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [goal_id, expected_revision]
+              properties:
+                goal_id: {type: string, format: uuid}
+                expected_revision: {type: integer, minimum: 1}
+      responses:
+        '204': {description: Marked confirmed or already matched}
+        '403': {description: GM identity required}
+        '409': {description: Mismatch}
+  /internal/v1/goals/active:
+    get:
+      operationId: internalListActiveGoals
+      tags: [goal-management]
+      parameters:
+        - in: query
+          name: cursor
+          schema: {type: string}
+        - in: query
+          name: limit
+          schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+      responses:
+        '200':
+          description: Active goal identities for reconciliation
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/ActiveGoal'}}
+                  next_cursor: {type: [string, 'null']}
+        '403': {description: Unauthorized service}
+  /internal/v1/goals/{goal_id}/runtime:
+    get:
+      operationId: internalGetGoalRuntime
+      tags: [goal-management]
+      parameters:
+        - $ref: '#/components/parameters/GoalId'
+      responses:
+        '200':
+          description: Latest authoritative lifecycle and version
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GoalRuntime'}
+        '404': {description: Not found}
+  /internal/v1/goals/{goal_id}/versions/{version}:
+    get:
+      operationId: internalGetGoalVersion
+      tags: [goal-management]
+      parameters:
+        - $ref: '#/components/parameters/GoalId'
+        - $ref: '#/components/parameters/Version'
+      responses:
+        '200':
+          description: Immutable GoalSpec
+          content:
+            application/json:
+              schema: {$ref: '../schemas/goal-spec.v1.schema.json'}
+        '404': {description: Version not found}
+  /internal/v1/sources/{source_id}/subscriptions:
+    get:
+      operationId: internalGetSourceSubscriptions
+      tags: [discovery-monitoring]
+      parameters:
+        - $ref: '#/components/parameters/SourceId'
+      responses:
+        '200':
+          description: Goal/version links from DM; callers recheck GM state
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [source_id, subscriptions]
+                properties:
+                  source_id: {type: string, format: uuid}
+                  subscriptions: {type: array, items: {$ref: '#/components/schemas/Subscription'}}
+  /internal/v1/sources/{source_id}:
+    get:
+      operationId: internalGetSource
+      tags: [discovery-monitoring]
+      parameters:
+        - $ref: '#/components/parameters/SourceId'
+      responses:
+        '200':
+          description: Canonical public source metadata, no secrets
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [source_id, source_url, canonical_url, hostname]
+                properties:
+                  source_id: {type: string, format: uuid}
+                  source_url: {type: string, format: uri}
+                  canonical_url: {type: string, format: uri}
+                  hostname: {type: string}
+  /internal/v1/extractions:
+    post:
+      operationId: internalSubmitExtraction
+      tags: [data-evidence]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExtractionSubmission'}
+      responses:
+        '201':
+          description: Observation persisted
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ExtractionReceipt'}
+        '202':
+          description: Extraction attempt persisted, observation not representable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ExtractionReceipt'}
+        '400': {description: Invalid extraction}
+        '403': {description: DM service required}
+        '409': {description: Attempt mismatch on reused ID}
+  /internal/v1/observations:
+    get:
+      operationId: internalListSourceObservations
+      tags: [data-evidence]
+      parameters:
+        - in: query
+          name: source_id
+          required: true
+          schema: {type: string, format: uuid}
+        - in: query
+          name: limit
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+      responses:
+        '200':
+          description: Source observations newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [observations]
+                properties:
+                  observations:
+                    type: array
+                    items: {$ref: '../schemas/observation.v1.schema.json'}
+  /internal/v1/observations/{observation_id}:
+    get:
+      operationId: internalGetObservation
+      tags: [data-evidence]
+      parameters:
+        - $ref: '#/components/parameters/ObservationId'
+      responses:
+        '200':
+          description: Immutable observation
+          content:
+            application/json:
+              schema: {$ref: '../schemas/observation.v1.schema.json'}
+        '404': {description: Not found}
+  /internal/v1/evaluations/{evaluation_id}:
+    get:
+      operationId: internalGetEvaluation
+      tags: [goal-evaluation]
+      parameters:
+        - $ref: '#/components/parameters/EvaluationId'
+      responses:
+        '200':
+          description: Immutable GoalEvaluation
+          content:
+            application/json:
+              schema: {$ref: '../schemas/goal-evaluation.v1.schema.json'}
+        '404': {description: Not found}
+  /internal/v1/action-packages/{package_id}:
+    get:
+      operationId: internalGetActionPackage
+      tags: [agent-integration]
+      parameters:
+        - $ref: '#/components/parameters/PackageId'
+      responses:
+        '200':
+          description: Prepare-only package; exact schema to be approved in follow-up additive PR
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [package_id, goal_id, goal_version, evaluation_id, approval_required, auto_execute, seller_offers]
+                properties:
+                  package_id: {type: string, format: uuid}
+                  goal_id: {type: string, format: uuid}
+                  goal_version: {type: integer, minimum: 1}
+                  evaluation_id: {type: string, format: uuid}
+                  approval_required: {const: true}
+                  auto_execute: {const: false}
+                  seller_offers: {type: array, items: {type: object}}
+        '404': {description: Not found}

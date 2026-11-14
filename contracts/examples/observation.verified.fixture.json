@@ -1,0 +1,23 @@
+{
+  "observation_id": "ae000000-0000-4000-8000-000000000004",
+  "source_id": "ae000000-0000-4000-8000-000000000003",
+  "source_url": "https://example.com/gpu",
+  "provider": "fixture",
+  "extraction_method": "fixture",
+  "provider_request_id": null,
+  "observed_at": "2026-11-14T10:00:00Z",
+  "product_name": "Graphics Card RTX 5070",
+  "brand": "Example",
+  "model": "RTX 5070",
+  "selling_unit": "pcs",
+  "unit_price_eur_cents": 57900,
+  "availability": "in_stock",
+  "delivery_to_fi": "yes",
+  "shipping_eur_cents": 1000,
+  "tax_eur_cents": 0,
+  "evidence": {
+    "text_excerpt": "Synthetic fixture: RTX 5070 EUR 579 + EUR 10 shipping",
+    "reliability": "checked",
+    "capture_url": null
+  }
+}
