@@ -1,0 +1,4 @@
+# Approved repository stack; no broker/DB driver is selected by this task.
+fastapi>=0.115,<1
+pydantic>=2,<3
+jsonschema>=4.21,<5

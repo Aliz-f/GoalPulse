@@ -1,0 +1,46 @@
+{
+  "package_id": "0df46be0-1784-5916-9627-3d5853d5c190",
+  "schema_version": 1,
+  "goal_id": "ae000000-0000-4000-8000-000000000002",
+  "goal_version": 1,
+  "evaluation_id": "ae000000-0000-4000-8000-000000000007",
+  "created_at": "2026-11-14T10:00:00Z",
+  "expires_at": "2026-11-14T11:00:00Z",
+  "action_type": "prepare_purchase",
+  "approval_required": true,
+  "auto_execute": false,
+  "seller_orders": [
+    {
+      "seller_domain": "example.com",
+      "shipping_eur_cents": 1000,
+      "items": [
+        {
+          "source_url": "https://example.com/gpu",
+          "observation_id": "ae000000-0000-4000-8000-000000000004",
+          "observed_at": "2026-11-14T10:00:00Z",
+          "item_name": "Graphics Card RTX 5070",
+          "quantity": "1",
+          "unit": "pcs",
+          "unit_price_eur_cents": 57900,
+          "total_item_eur_cents": 57900,
+          "additional_tax_eur_cents": 0
+        }
+      ]
+    }
+  ],
+  "total_eur_cents": 58900,
+  "condition_codes": [
+    "availability",
+    "condition",
+    "delivery",
+    "freshness",
+    "identity_match",
+    "reliability",
+    "seller_policy",
+    "shipping_known",
+    "tax_known",
+    "total_within_budget"
+  ],
+  "next_action": "request_user_approval",
+  "requires_checkout_revalidation": true
+}

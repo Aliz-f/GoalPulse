@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Action Package \u2014 session-approved service artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "package_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "goal_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "goal_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "evaluation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "action_type": {
+      "const": "prepare_purchase"
+    },
+    "approval_required": {
+      "const": true
+    },
+    "auto_execute": {
+      "const": false
+    },
+    "seller_orders": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seller_domain",
+          "shipping_eur_cents",
+          "items"
+        ],
+        "properties": {
+          "seller_domain": {
+            "type": "string",
+            "format": "hostname"
+          },
+          "shipping_eur_cents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "source_url": {
+                  "type": "string",
+                  "format": "uri",
+                  "pattern": "^https?://"
+                },
+                "observation_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "observed_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "item_name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "quantity": {
+                  "type": "string",
+                  "pattern": "^(?:[1-9][0-9]*(?:\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)$"
+                },
+                "unit": {
+                  "enum": [
+                    "pcs",
+                    "kg",
+                    "L"
+                  ]
+                },
+                "unit_price_eur_cents": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "total_item_eur_cents": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "additional_tax_eur_cents": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "source_url",
+                "observation_id",
+                "observed_at",
+                "item_name",
+                "quantity",
+                "unit",
+                "unit_price_eur_cents",
+                "total_item_eur_cents",
+                "additional_tax_eur_cents"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "total_eur_cents": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "condition_codes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "next_action": {
+      "const": "request_user_approval"
+    },
+    "requires_checkout_revalidation": {
+      "const": true
+    }
+  },
+  "required": [
+    "package_id",
+    "schema_version",
+    "goal_id",
+    "goal_version",
+    "evaluation_id",
+    "created_at",
+    "expires_at",
+    "action_type",
+    "approval_required",
+    "auto_execute",
+    "seller_orders",
+    "total_eur_cents",
+    "condition_codes",
+    "next_action",
+    "requires_checkout_revalidation"
+  ]
+}
