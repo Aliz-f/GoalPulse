@@ -86,6 +86,14 @@ class Transport(Protocol):
                 body: bytes | None, timeout: float) -> HttpResponse: ...
 
 
+class ProviderPayload(dict):
+    """Local transport instrumentation stored as an attribute, never a wire field."""
+
+    def __init__(self, value: dict, request_attempts: int) -> None:
+        super().__init__(value)
+        self.request_attempts = request_attempts
+
+
 class ContextHttpsTransport:
     """TLS to a fixed provider host. No proxy, redirect, or arbitrary-host support."""
 
@@ -127,6 +135,8 @@ class ScrapeResult:
     observed_at: datetime | None
     product: Output
     markdown: Output
+    credits_consumed: int | None = None
+    request_attempts: int = 1
 
 
 @dataclass(frozen=True)
@@ -191,7 +201,7 @@ class ContextProvider:
                                         parse_constant=reject_json_constant)
                     if not isinstance(result, dict):
                         raise ValueError
-                    return result
+                    return ProviderPayload(result, attempt + 1)
                 except (ValueError, UnicodeError):
                     raise ProviderError("INVALID_RESPONSE") from None
             transient = response.status in (408, 429, 500, 502, 503, 504)
@@ -256,8 +266,13 @@ class ContextProvider:
         request_id = result.get("request_id")
         if request_id is not None and not isinstance(request_id, str):
             raise ProviderError("INVALID_RESPONSE")
+        usage = result.get("key_metadata")
+        credits = usage.get("credits_consumed") if isinstance(usage, dict) else None
+        if type(credits) is not int or credits < 0:
+            credits = None
         return ScrapeResult(final_url, request_id, fetched_at, age, observed_at,
-                            output("product", dict), output("markdown", str))
+                            output("product", dict), output("markdown", str), credits,
+                            getattr(result, "request_attempts", 1))
 
     def create_monitor(self, *, name: str, url: str, instructions: str | None = None,
                        webhook_url: str | None = None, frequency_minutes: int = 1440) -> MonitorCreated:

@@ -17,7 +17,7 @@ def test_shared_monitor_reserved_once_and_only_secret_reference_persisted():
     store.reserve.side_effect = [(identifier, True), (identifier, False)]
     provider.create_monitor.return_value = MonitorCreated("mon_fixture", "run_baseline", "fixture-secret")
     secrets.put.return_value = "secret-manager/fixture-reference"
-    manager = MonitorManager(store, provider, secrets)
+    manager = MonitorManager(store, provider, secrets, source_active=lambda _: True)
     assert manager.ensure(source, webhook_url="https://example.com/hook") == identifier
     assert manager.ensure(source, webhook_url="https://example.com/hook") == identifier
     provider.create_monitor.assert_called_once()
@@ -31,7 +31,7 @@ def test_ambiguous_creation_is_marked_uncertain_without_second_create():
     store.reserve.return_value = (uuid4(), True)
     provider.create_monitor.side_effect = TimeoutError()
     with pytest.raises(TimeoutError):
-        MonitorManager(store, provider, Mock()).ensure(source)
+        MonitorManager(store, provider, Mock(), source_active=lambda _: True).ensure(source)
     assert store.state.call_args.args[1:] == ("uncertain", "CREATION_REQUIRES_RECONCILIATION")
     provider.create_monitor.assert_called_once()
 
@@ -41,7 +41,7 @@ def test_baseline_is_recorded_without_evidence_or_change_callback():
     store, provider = Mock(), Mock()
     provider.fetch_run.return_value = {"id": "run_baseline", "monitor_id": "mon_fixture",
                                       "status": "completed", "baseline_created": True}
-    assert MonitorManager(store, provider, Mock()).record_baseline(monitor)
+    assert MonitorManager(store, provider, Mock(), source_active=lambda _: True).record_baseline(monitor)
     store.baseline.assert_called_once()
     assert len(provider.method_calls) == 1
 
@@ -70,3 +70,13 @@ def test_failed_runtime_read_does_not_pause_shared_monitor():
     with pytest.raises(TimeoutError):
         SubscriptionReconciler(goals, registry, store, provider).reconcile_monitor(monitor)
     provider.set_monitor_status.assert_not_called()
+
+
+def test_monitor_creation_requires_current_active_subscriber():
+    source = Source(uuid4(), "https://example.com/item", "https://example.com/item", "example.com")
+    store, provider = Mock(), Mock()
+    manager = MonitorManager(store, provider, Mock(), source_active=lambda _: False)
+    with pytest.raises(ValueError, match="active subscriber"):
+        manager.ensure(source)
+    store.reserve.assert_not_called()
+    provider.create_monitor.assert_not_called()

@@ -75,11 +75,14 @@ class MonitorStore:
 
 
 class MonitorManager:
-    def __init__(self, store, provider, secrets: SecretStore) -> None:
+    def __init__(self, store, provider, secrets: SecretStore, *, source_active) -> None:
         self.store, self.provider, self.secrets = store, provider, secrets
+        self.source_active = source_active
 
     def ensure(self, source: Source, *, instructions: str = "Report product price or availability changes",
                frequency_minutes: int = 1440, webhook_url: str | None = None) -> UUID:
+        if not self.source_active(source.source_id):
+            raise ValueError("Monitor creation requires a current active subscriber")
         policy = sha256(f"{frequency_minutes}:{instructions}:{webhook_url}".encode()).hexdigest()
         identifier, created = self.store.reserve(source, policy)
         if not created:

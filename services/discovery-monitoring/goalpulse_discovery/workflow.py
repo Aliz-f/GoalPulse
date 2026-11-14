@@ -14,6 +14,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from .context_provider import Provider, ProviderError, ScrapeResult
 from .registry import Source, canonical_url
+from .validation import validator
 
 
 @dataclass(frozen=True)
@@ -38,8 +39,7 @@ class EvidenceSink(Protocol):
 class ActivationInbox:
     def __init__(self, store, *, schema_directory: Path) -> None:
         self.store = store
-        schema = json.loads((schema_directory / "domain-event.v1.schema.json").read_text(encoding="utf-8"))
-        self.validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        self.validator = validator(schema_directory / "domain-event.v1.schema.json")
 
     def accept(self, event: dict) -> bool:
         self.validator.validate(event)
@@ -56,8 +56,7 @@ class DiscoveryWorker:
             raise ValueError("Source budget must be between 1 and 5")
         self.goals, self.provider, self.registry, self.evidence = goals, provider, registry, evidence
         self.max_sources = max_sources
-        schema = json.loads((schema_directory / "goal-spec.v1.schema.json").read_text(encoding="utf-8"))
-        self.validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        self.validator = validator(schema_directory / "goal-spec.v1.schema.json")
 
     def current(self, goal_id: UUID, version: int) -> bool:
         state = self.goals.runtime(goal_id)

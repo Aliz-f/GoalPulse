@@ -1,8 +1,10 @@
 # discovery-monitoring — GoalPulse service
 
-**Implementation status: D3-DM-01 adapter implemented; live acceptance pending.**
-No HTTP service, activation consumer, source registry, scheduler or webhook receiver
-is implemented yet. ICP-01 approvals are still pending.
+**Implementation status: private components for D3-DM-01..06 implemented and tested offline.**
+Provider adapter, PostgreSQL registry/jobs, discovery worker, monitor lifecycle,
+webhook verification/enqueue core and direct-operation limits are present. HTTP
+routes/auth and production worker/broker wiring remain pending accepted contracts
+and platform setup. Live acceptance has not passed; ICP-01 approvals are still pending.
 
 - [Service specification](../../docs/implementation/03-discovery-monitoring.md)
 - [All seven services and integration constraints](../../docs/implementation/README.md)
@@ -51,3 +53,60 @@ NOT RUN (missing key); exit 1 means extraction limited/failed; exit 0 means a
 named/priced product was returned, without asserting checkout availability.
 
 See [D3-DM-01 report](reports/D3-DM-01.md) for the live-test limitation and handoff.
+
+## D3-DM-02..06 private components
+
+- `registry.py` + `migrations/0001_sources.sql`: canonical public HTTPS sources,
+  variant-preserving URL deduplication, versioned subscriptions and reconciliation.
+- `workflow.py`, `jobs.py` + `0002_activation_jobs.sql`: strict frozen activation
+  validation, transactional inbox/job creation, bounded discovery and an immediate
+  initial scrape. Goal/version runtime is checked before provider work and again
+  before submission. Permanent errors/deadlines go to durable `dead` job state;
+  transient errors use bounded backoff and respect provider Retry-After.
+- `monitoring.py` + `0003_monitors.sql`: durable reservations prevent blind duplicate
+  creation, store only secret-manager references and keep uncertain creation for
+  reconciliation. Source eligibility must be rechecked through the injected
+  `source_active` callback (e.g. `SourceCheck.active`). Baselines are stored separately.
+  Reconciliation refreshes every linked goal, preserving shared monitor subscribers.
+- `webhooks.py`, `source_checks.py` + `0004_webhook_jobs.sql`: raw-byte HMAC-SHA256,
+  300-second timestamp tolerance, body limits, header/body and expected-monitor
+  matching, durable event-ID deduplication and one follow-up job per monitor/run.
+  No expensive fetch occurs in receipt handling. The trusted receiver config chooses
+  the secret reference; body claims never choose identity or a target URL.
+- `limits.py` + `0005_provider_limits.sql`: PostgreSQL-coordinated daily operation
+  limits/credit reservations, resource cooldowns, bounded per-process concurrency,
+  sanitized errors and explicit unknown usage. Unknown cost remains reserved until
+  reviewed reconciliation; scheduled monitor usage is explicitly unknown. Counts
+  are logical direct operations, not network attempts or total account charges.
+
+`persistence.Database(connect).migrate(service_migrations_directory)` applies these
+owned migrations with checksums and an advisory lock. Inject a fresh psycopg 3
+connection factory with autocommit disabled, scoped to `discovery_monitoring`.
+No driver, HTTP server, credential storage backend or background process is
+installed/started automatically. `SecretStore` needs a real server-side secret
+manager before webhook-enabled monitor creation can be used operationally.
+
+GoalReader and EvidenceSink are explicitly injected mock ports while ICP-01 is
+pending. They do not implement proposed paths or send an ad hoc request payload.
+The provider receipt core also has no HTTP ingress yet: coordinated routing must
+provide trusted per-monitor receiver configuration, raw-body limits and error
+status translation. RabbitMQ queue/manual-ACK/retry/DLQ startup wiring belongs to
+the platform integration. ACK only after ActivationInbox.accept returns durably.
+The service-only Check Now HTTP hook remains held pending its signed-off design.
+
+Provider signature/baseline behavior follows the official
+[webhook protocol](https://docs.context.dev/webhooks),
+[monitor event reference](https://docs.context.dev/monitors/webhooks) and
+[schedule API](https://docs.context.dev/monitors/schedules).
+
+After approved psycopg provisioning and a disposable owned test DB, set the
+test-only `GOALPULSE_DM_TEST_DSN` locally to database `discovery_monitoring_test`:
+
+```powershell
+.venv/Scripts/python.exe -m pytest -q services/discovery-monitoring/tests/test_discovery_postgres_live.py
+```
+
+These three opt-in tests apply forward migrations and append synthetic fixtures.
+They do not create/drop/truncate databases or contact Context.dev. Without the
+test DSN they skip explicitly. Full status is in the
+[Developer 3 handoff](../data-evidence/reports/DEVELOPER-3-HANDOFF.md).
