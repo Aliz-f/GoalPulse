@@ -11,6 +11,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -r requirements-dev.txt
+      # Root dev tools plus each service's own test dependencies.
+      - run: >-
+          python -m pip install
+          -r requirements-dev.txt
+          -r infrastructure/gateway/requirements.txt
+          -r services/goal-management/requirements.txt
+          -r services/goal-intelligence/requirements.txt
       - run: python scripts/validate_contracts.py
       - run: python -m pytest -q

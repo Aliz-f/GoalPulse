@@ -1,0 +1,39 @@
+name: Goal Intelligence (Postgres)
+on:
+  pull_request:
+    paths:
+      - "services/goal-intelligence/**"
+      - "contracts/schemas/**"
+      - ".github/workflows/goal-intelligence.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/goal-intelligence/**"
+      - "contracts/schemas/**"
+      - ".github/workflows/goal-intelligence.yml"
+
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine   # same image as infrastructure/docker-compose.yml
+        env:
+          POSTGRES_USER: gi_ci
+          POSTGRES_PASSWORD: gi_ci_password   # CI-only throwaway container
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gi_ci -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      GI_TEST_POSTGRES_URL: postgresql://gi_ci:gi_ci_password@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-dev.txt -r services/goal-intelligence/requirements.txt
+      - name: Goal Intelligence tests incl. Postgres integration
+        run: python -m pytest -q -rs services/goal-intelligence/tests

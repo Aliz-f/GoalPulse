@@ -8,10 +8,10 @@
 - [`tasks/MASTER_BACKLOG.md`](tasks/MASTER_BACKLOG.md) — gates, dependency graph and task order. 44 copy/paste-ready task briefs live in `tasks/issues/`, with machine-readable `tasks/task-index.yaml`.
 - [`tasks/developer-1.md`](tasks/developer-1.md), [`developer-2.md`](tasks/developer-2.md), [`developer-3.md`](tasks/developer-3.md), [`developer-4.md`](tasks/developer-4.md) — owner-specific task IDs, allowed paths, dependencies and acceptance criteria.
 - [`docs/implementation/coding-agent-task-usage.md`](docs/implementation/coding-agent-task-usage.md) — Codex/Claude task prompts and review checklist.
-- [`contracts/openapi/internal.proposed.v1.yaml`](contracts/openapi/internal.proposed.v1.yaml) — **proposed** private APIs; must be approved before becoming authoritative. Public v1 and four event routes stay frozen.
+- [`contracts/openapi/internal.proposed.v1.yaml`](contracts/openapi/internal.proposed.v1.yaml) — accepted private API contract (the historical filename is retained); see ADR-0002. Public v1 and four event routes stay frozen.
 - [`docs/implementation/12-contract-gaps-and-decisions.md`](docs/implementation/12-contract-gaps-and-decisions.md) — interface changes requiring team signoff.
 
-The implementation blueprint does NOT mean these seven microservices are implemented or that the proposed changes were approved.
+The implementation blueprint does NOT mean these seven microservices are implemented. ICP-01 and ICP-08 are accepted as recorded in ADR-0002; all other proposed changes still require their stated approvals.
 
 ## Quickstart
 

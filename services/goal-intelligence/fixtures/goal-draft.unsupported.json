@@ -1,0 +1,14 @@
+{
+  "session_id": "ae000000-0000-4000-8000-0000000000d4",
+  "owner_user_id": "ae000000-0000-4000-8000-00000000000a",
+  "revision": 1,
+  "state": "collecting",
+  "candidate_goal": {
+    "unsupported_request": "Travel"
+  },
+  "missing_fields": [
+    "supported_goal_type"
+  ],
+  "next_question": "Travel can't be tracked yet. I can watch for a product you want to buy, or for monthly supplies for your business. What would you like to track?",
+  "ready_for_confirmation": false
+}
