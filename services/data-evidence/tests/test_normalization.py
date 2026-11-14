@@ -41,6 +41,7 @@ def test_confirmed_package_conversion(facts, capture, unit, quantity, package_un
     ({"price_eur": None}, "MISSING_UNIT_PRICE"),
     ({"price_eur": 3.0}, "INVALID_MONEY"),
     ({"price_eur": "3,00"}, "INVALID_MONEY"),
+    ({"price_eur": "2.00000000000000000000000000000001", "price_is_per_unit": True}, "NON_INTEGRAL_PRICE"),
     ({"currency": None}, "UNSUPPORTED_CURRENCY"),
     ({"currency": "USD"}, "UNSUPPORTED_CURRENCY"),
     ({"delivery_country": "DE"}, "UNSUPPORTED_DESTINATION"),

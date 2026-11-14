@@ -1,0 +1,114 @@
+# Developer 3 current status — 2026-11-14
+
+## Completion status
+
+Private components cover every Developer 3 task area. **The eleven tasks are not
+all accepted/integrated.** HTTP/auth contracts and live infrastructure remain
+unavailable. The code exposes no unapproved API and uses explicitly injected mock
+ports while ICP-01 is pending, as permitted by the implementation blueprint.
+
+| Task | Implemented and tested offline | Remaining acceptance / integration |
+|---|---|---|
+| D3-DM-01 | Injectable provider adapter, documented REST operations, bounded retry, cache provenance, redacted probe. | Real example.com + product feasibility checks; local API key absent. |
+| D3-DM-02 | PostgreSQL sources/subscriptions, variant-preserving canonicalization, public DNS checks. | Approved routes/auth and GM mocks; actual SQL checks; provider egress/redirect validation. |
+| D3-DM-03 | Strict activation validation, atomic inbox/jobs, runtime/version rechecks, bounded initial discovery/scrape. | Approved GM/DE HTTP adapters and DTOs; RabbitMQ consumer startup/manual ACK/retry/DLQ; live vertical slice. |
+| D3-DM-04 | Shared monitor reservation, secret references, baseline handling, active-source checks, pause/resume reconciliation, provider interval/status calls. | Real secret backend, polling/scheduler entrypoint, approved runtime/active-goal adapters and live monitor acceptance. |
+| D3-DM-05 | Raw-body HMAC, freshness/body/header/monitor validation, event/run deduplication, bounded follow-up jobs. | Admitted HTTP ingress/trusted receiver config, actual secret storage and live delivery/retry tests. |
+| D3-DM-06 | Durable daily operation budgets/cost reservations, resource TTL, process concurrency, unknown/pending usage, Retry-After propagation. | Signed-off Check Now API, runtime wiring and provider account/scheduled-monitor usage reconciliation. |
+| D3-DE-01 | Immutable snapshots/provenance, failure ledger, stable fingerprints, atomic outbox/migrations. | Actual PostgreSQL migration/transaction/immutability checks. |
+| D3-DE-02 | Explicit facts, exact EUR cents, confirmed packaging conversions, tax/shipping/stock unknown semantics, explicit model preservation. | Approved ExtractionSubmission DTO/route/auth and reviewed policy before checked evidence promotion. |
+| D3-DE-03 | Private by-ID/source SQL queries, bounded newest ordering, strict revalidation. | Approved M2M auth/routes and consumer HTTP/authorization acceptance. |
+| D3-DE-04 | Outbox worker, stable IDs, confirms, persistent mandatory publication, bounded retry/dead state, Pika channel adapter. | Platform-created channel/queues/timeouts, driver/runtime packaging and live broker recovery tests. |
+| D3-DE-05 | Missing facts, packaging/tax ambiguity, cache time, disputed evidence, duplicate and ICP-13 regressions. | Actual GE consumer integration and audited live source provenance. |
+
+## Changed code and purpose
+
+All source changes are within Developer 3's two service directories. Existing
+schemas, routes, task files, shared setup, infrastructure, ADRs and other owners'
+services are unchanged. Local task branches/commits are stacked; nothing is pushed
+or merged into main.
+
+- Discovery `goalpulse_discovery/`: `registry.py`/`persistence.py` own sources and
+  links; `workflow.py`/`validation.py`/`jobs.py` validate activations and discover
+  initial evidence; `monitoring.py` owns shared monitor lifecycle; `webhooks.py`/
+  `source_checks.py` verify/enqueue provider triggers; `limits.py` tracks budgets.
+  `context_provider.py` adds provider scheduling/status and usage instrumentation.
+- Discovery `migrations/0001_sources.sql` through `0005_provider_limits.sql` create
+  the owned registry, jobs, monitor registry, webhook inbox and usage tables.
+- Evidence `normalization.py` parses Decimal EUR amounts and uses exact rational
+  arithmetic so long decimal values cannot round away fractional cents. It stores
+  missing/unsupported facts only as failure records, never fake observations.
+- Evidence `reads.py` returns strict, bounded snapshots. `publishing.py` handles
+  confirmed outbox publication and replay with stable event IDs.
+- Each service's tests and README document offline behavior and opt-in actual SQL
+  acceptance. The initial evidence migration remains the sole DE migration.
+
+## Contract and domain invariants
+
+Frozen v1 schemas/event routing/Gateway OpenAPI are unchanged. DE alone produces
+existing `evidence.updated.v1`; DM never publishes it. Private mock ports are not
+claimed as approved HTTP contracts. No user or service authentication is invented.
+
+ICP-01 approval is still pending in the local decision log and was explicitly
+confirmed earlier by Developer 3. AGENTS.md sections 1.6/2.1 require holding those
+interfaces. ICP-08, Check Now and integration ADRs require coordinated signoff.
+
+ICP-13 stays deferred per the user. No condition or arbitrary attribute fields were
+added. Explicit `model` is preserved; missing model stays null. Excerpts never create
+structured condition/model/stock/shipping/tax proof, and condition is not hidden in
+names/prices. Normalization stays unverified, or disputed on conflicting signals;
+it cannot promote provider confidence to checked. A GPU-new requirement must stay
+unknown in GE and cannot produce a verified opportunity from this evidence.
+
+## Integration impact and risks
+
+- Apply the six owned forward SQL migrations through each service's checksummed
+  runner against its own DB. No migration has been executed in this environment.
+- No production dependency installed. Runtime needs platform-approved psycopg 3
+  factories, a Pika BlockingChannel/BasicProperties factory, bounded connection
+  timeouts, scoped DB/broker credentials and an actual server secret-store adapter.
+- No server, exposed port, worker process, webhook ingress or purchase was started.
+- Production code takes injected connections. Test-only `GOALPULSE_DE_TEST_DSN`
+  must name `data_evidence_test`; `GOALPULSE_DM_TEST_DSN` must name
+  `discovery_monitoring_test`. Existing `CONTEXT_DEV_API_KEY` is needed for the probe.
+- Outbox/job transactions assume read-committed PostgreSQL and bounded external
+  calls. A crash after broker confirm but before DB commit may redeliver the same
+  event ID; consumers must durably deduplicate it.
+- Local DNS validation cannot pin remote provider DNS or stop its redirects.
+  Provider-side egress policy validation is required for full SSRF acceptance.
+- Usage metrics describe logical direct operations, not all network retries or
+  account spending. Missing/retried usage stays unknown and retains its reservation;
+  scheduled monitor usage is explicitly unknown until provider reconciliation.
+- D4 can reuse frozen synthetic Observations and the private test ports. There are
+  no running approved subscription/evidence HTTP endpoints or verified live offers.
+
+## Verification
+
+From repository root with `.venv/Scripts/python.exe` (Python 3.13.5):
+
+| Command | Result |
+|---|---|
+| `scripts/validate_contracts.py` | PASS: 5 schemas, 11 examples, 4 event routes, Gateway OpenAPI. |
+| `-m pytest -q` | **179 passed, 7 skipped**. |
+| `-m compileall -q services/discovery-monitoring/goalpulse_discovery services/data-evidence/goalpulse_evidence` | PASS. |
+| `git diff --check` | PASS. |
+
+**NOT RUN / skipped:** four DE and three DM actual PostgreSQL cases. Test DSNs,
+driver/database and PostgreSQL/Docker tools are unavailable. After provisioning
+the dedicated databases and approved driver, run:
+
+```powershell
+.venv/Scripts/python.exe -m pytest -q services/data-evidence/tests/test_postgres_live.py
+.venv/Scripts/python.exe -m pytest -q services/discovery-monitoring/tests/test_discovery_postgres_live.py
+```
+
+**NOT RUN:** Context.dev smoke/product acceptance; no local key. Set the key only
+in the local process environment, never in chat/source/reports, then run:
+
+```powershell
+.venv/Scripts/python.exe services/discovery-monitoring/probe_context.py https://PUBLIC-MERCHANT/PRODUCT
+```
+
+**NOT RUN:** real RabbitMQ confirms/recovery, real monitor/webhook delivery, HTTP
+M2M authorization and multi-service acceptance. These require the approved
+contracts/platform wiring above. Offline tests are not operational proof.

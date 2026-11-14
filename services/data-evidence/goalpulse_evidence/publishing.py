@@ -47,7 +47,7 @@ class OutboxPublisher:
                 now = utc(self.clock())
                 cursor.execute("""SELECT event_id, payload, attempts FROM outbox
                     WHERE status = 'pending' AND next_attempt_at <= %s
-                    ORDER BY next_attempt_at, event_id FOR UPDATE SKIP LOCKED LIMIT 1""", (now,))
+                    ORDER BY next_attempt_at, event_id LIMIT 1 FOR UPDATE SKIP LOCKED""", (now,))
                 row = cursor.fetchone()
                 if row is None:
                     connection.rollback()

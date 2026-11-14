@@ -1,5 +1,9 @@
 # Developer 3 handoff — 2026-11-14
 
+**Historical initial handoff.** Implementation has progressed since this report.
+See [current status and acceptance gates](DEVELOPER-3-CURRENT-STATUS.md) for the
+latest code, task-by-task status, verification results and remaining dependencies.
+
 ## Implemented within allowed service paths
 
 - **D3-DM-01:** standard-library Context.dev adapter with injectable transport,

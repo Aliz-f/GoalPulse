@@ -1,7 +1,9 @@
 # data-evidence — GoalPulse service
 
-**Implementation status: D3-DE-01 storage foundation implemented; PostgreSQL execution pending.**
-There is no HTTP ingestion/read service or RabbitMQ publisher yet. ICP-01 is still
+**Implementation status: private components for D3-DE-01..05 implemented and tested offline.**
+Storage, normalization, evidence queries, outbox publication and quality tests are
+present. HTTP ingestion/reads/auth, worker startup and live PostgreSQL/RabbitMQ
+acceptance remain pending approved contracts and platform setup. ICP-01 is still
 awaiting the affected owners' approvals and an accepted ADR.
 
 - [Service specification](../../docs/implementation/04-data-evidence.md)
@@ -82,3 +84,37 @@ after a staged observation write fails. A configured integration run fails if it
 driver is missing. No service is started or network port exposed by this task.
 
 See [Developer 3 handoff](reports/DEVELOPER-3-HANDOFF.md) for task status and blockers.
+
+## D3-DE-02..05 private components
+
+- `normalization.ProductFacts` is a service-private fact model, not the proposed
+  ExtractionSubmission wire DTO. It normalizes confirmed pcs/kg/L packaging,
+  including g/ml conversions, and exact decimal EUR amounts. Rational arithmetic
+  preserves decimal precision; fractional-cent unit prices are rejected instead
+  of rounded. Inclusive tax contributes zero additional tax only when explicitly
+  established; additional/unknown tax and unknown shipping remain distinct.
+- `FactIngestor` stores normalizer rejection codes in the failure ledger and valid
+  strict snapshots through the atomic observation/outbox path. No HTTP receipt
+  status or request shape is assumed before ICP-01 acceptance.
+- `reads.EvidenceReads` queries the owned DB by ID or bounded source/newest order
+  and revalidates every returned snapshot. The component expects a future M2M
+  authenticated handler; it exposes no HTTP route or homemade identity scheme.
+- `publishing.OutboxPublisher` claims one row with a PostgreSQL lock, publishes the
+  exact event and marks it published only after confirmation. Unconfirmed sends
+  retry with a stable event ID, then go to durable dead state after a bounded
+  number of attempts. A crash after confirm may redeliver; consumers must dedup.
+- `RabbitChannelBroker` accepts a platform-created Pika BlockingChannel with
+  bounded timeouts and `pika.BasicProperties` factory. It declares the durable
+  topic exchange, enables confirms and sends persistent, mandatory messages.
+  Driver installation, credentials, queues and worker startup remain platform
+  integration work. [Pika's BlockingChannel documentation](https://pika.github.io/pika/latest/modules/adapters/blocking/)
+  defines confirmation and unroutable/NACK behavior.
+
+ICP-13 stays deferred. `Observation.v1` has no product condition or arbitrary
+attribute fields. An explicitly extracted `model` is preserved; a missing model
+stays null. Excerpts never create condition/model/shipping/tax/stock proof, and
+condition is never hidden in names/prices. Normalization remains unverified by
+default, or disputed on conflicting source signals; it has no automatic checked
+upgrade. A reviewed corroboration policy is still required for checked evidence.
+GE must keep unsupported mandatory condition/attribute checks unknown, so this
+work does not establish a verified GPU-new opportunity.

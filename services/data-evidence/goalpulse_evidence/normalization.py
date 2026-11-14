@@ -8,6 +8,7 @@ than rounded down into a misleading offer. No automatic trust upgrade exists.
 
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 import re
 from uuid import UUID, uuid4
 
@@ -35,8 +36,8 @@ def decimal_amount(value: str | Decimal | int) -> Decimal:
 def cents(value: str | Decimal | int | None) -> int | None:
     if value is None:
         return None
-    amount = decimal_amount(value) * 100
-    if amount != amount.to_integral_value():
+    amount = Fraction(decimal_amount(value)) * 100
+    if amount.denominator != 1:
         raise NormalizationError("NON_INTEGRAL_PRICE")
     return int(amount)
 
@@ -84,13 +85,13 @@ def normalize(facts: ProductFacts, capture: Capture) -> dict:
         if facts.package_quantity is None or facts.package_unit not in units:
             raise NormalizationError("UNKNOWN_PACKAGING")
         unit, multiplier = units[facts.package_unit]
-        quantity = decimal_amount(facts.package_quantity) * multiplier
+        quantity = Fraction(decimal_amount(facts.package_quantity)) * Fraction(multiplier)
         if unit != facts.selling_unit or quantity <= 0:
             raise NormalizationError("UNKNOWN_PACKAGING")
-        # Decimal division itself may round under its context. Verify the exact
-        # integer relationship, which avoids accepting a rounded-down unit price.
-        unit_cents = price * 100 / quantity
-        if unit_cents != unit_cents.to_integral_value() or unit_cents * quantity != price * 100:
+        # Fraction(Decimal) preserves the parsed decimal exactly, including values
+        # longer than the current Decimal context's precision. No implicit rounding.
+        unit_cents = Fraction(price) * 100 / quantity
+        if unit_cents.denominator != 1:
             raise NormalizationError("NON_INTEGRAL_PRICE")
         price_cents = int(unit_cents)
     else:
