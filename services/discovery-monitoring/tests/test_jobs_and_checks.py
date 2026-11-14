@@ -39,6 +39,18 @@ def test_discovery_job_honors_provider_retry_after_and_bounded_deadline():
     assert DiscoveryJobs(db, clock=lambda: NOW).run_once(worker) == "dead"
 
 
+def test_retry_after_beyond_deadline_is_dead_without_datetime_overflow():
+    db = JobDatabase((uuid4(), uuid4(), 1, uuid4(), 0, NOW + timedelta(hours=1)))
+    worker = Mock()
+    worker.run.side_effect = ProviderError("RATE_LIMITED", retry_after_seconds=1e308)
+    assert DiscoveryJobs(db, clock=lambda: NOW).run_once(worker) == "dead"
+    assert db.calls[-1][1][1] == "RETRY_AFTER_DEADLINE"
+
+    source_db = JobDatabase((uuid4(), uuid4(), uuid4(), 0, NOW + timedelta(hours=1)))
+    assert SourceCheckJobs(source_db, clock=lambda: NOW).run_once(worker) == "dead"
+    assert source_db.calls[-1][1][1] == "RETRY_AFTER_DEADLINE"
+
+
 def test_expired_discovery_job_performs_no_provider_work():
     db = JobDatabase((uuid4(), uuid4(), 1, uuid4(), 0, NOW - timedelta(seconds=1)))
     worker = Mock()

@@ -23,7 +23,8 @@ when they are implemented under their approved contracts.
 Executed from repository root using `.venv/Scripts/python.exe`:
 
 - `scripts/validate_contracts.py`: PASS.
-- `-m pytest -q`: **194 passed, 7 skipped** (the existing missing PostgreSQL DSNs).
+- Current merged service follow-up: `-m pytest -q` is **233 passed, 7 skipped**
+  (the missing PostgreSQL DSNs remain explicit skips).
 - `git diff --check`: PASS.
 - `git check-ignore -v -- services/discovery-monitoring/.env`: PASS; root ignore
   rule excludes the local file. It is not staged/tracked.

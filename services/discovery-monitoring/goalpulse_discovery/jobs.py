@@ -54,8 +54,12 @@ class DiscoveryJobs:
                 except ProviderError as error:
                     retry_after = error.retry_after_seconds or 0
                     transient = error.code in ("NETWORK_ERROR", "RATE_LIMITED") or error.status in (408, 500, 502, 503, 504)
-                    state = "pending" if transient and attempts + 1 < self.max_attempts else "dead"
-                    result = error.code
+                    remaining = max(0, (deadline - now).total_seconds())
+                    if transient and retry_after > remaining:
+                        state, result, retry_after = "dead", "RETRY_AFTER_DEADLINE", 0
+                    else:
+                        state = "pending" if transient and attempts + 1 < self.max_attempts else "dead"
+                        result = error.code
                 except ValueError:
                     state, result = "dead", "INVALID_GOAL_OR_PAYLOAD"
                 except Exception:

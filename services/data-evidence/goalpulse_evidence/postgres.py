@@ -12,7 +12,7 @@ from datetime import datetime
 import json
 from typing import Any, Protocol
 
-from .ledger import Attempt, Capture
+from .ledger import Attempt, AttemptConflict, Capture
 
 
 class Cursor(Protocol):
@@ -67,7 +67,7 @@ class PostgresTransaction:
                 source_url, fetched_at, provider_observed_at, cache_age_ms,
                 outcome, error_code, fingerprint, created_at)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-               ON CONFLICT (fingerprint) DO NOTHING RETURNING attempt_id""",
+               ON CONFLICT DO NOTHING RETURNING attempt_id""",
             (attempt.attempt_id, str(capture.source_id), capture.provider, capture.provider_request_id,
              capture.extraction_method, capture.source_url, capture.fetched_at,
              capture.provider_observed_at, capture.cache_age_ms, attempt.outcome,
@@ -76,9 +76,19 @@ class PostgresTransaction:
         row = self.cursor.fetchone()
         if row:
             return str(row[0]), True
+        self.cursor.execute("SELECT attempt_id,fingerprint FROM extraction_attempts WHERE attempt_id = %s",
+                            (attempt.attempt_id,))
+        row = self.cursor.fetchone()
+        if row:
+            if row[1] != attempt.fingerprint:
+                raise AttemptConflict("attempt_id was reused for different extraction data")
+            return str(row[0]), False
         self.cursor.execute("SELECT attempt_id FROM extraction_attempts WHERE fingerprint = %s",
                             (attempt.fingerprint,))
-        return str(self.cursor.fetchone()[0]), False
+        row = self.cursor.fetchone()
+        if row is None:
+            raise RuntimeError("Extraction attempt conflict could not be resolved")
+        return str(row[0]), False
 
     def add_observation(self, observation: dict, attempt_id: str,
                         fingerprint: str, created_at: datetime) -> tuple[str, bool]:

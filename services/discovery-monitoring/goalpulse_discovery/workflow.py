@@ -65,8 +65,19 @@ class DiscoveryWorker:
         state = self.goals.runtime(goal_id)
         return (state.goal_id == goal_id and state.current_version == version and state.lifecycle == "active")
 
+    def reconcile_current(self, goal_id: UUID, version: int) -> bool:
+        """Reconcile only from authoritative runtime; stale jobs never invent state."""
+        state = self.goals.runtime(goal_id)
+        if state.goal_id != goal_id:
+            raise ValueError("Runtime identity mismatch")
+        if state.current_version == version and state.lifecycle == "active":
+            return True
+        self.registry.reconcile(goal_id, current_version=state.current_version,
+                                lifecycle=state.lifecycle)
+        return False
+
     def run(self, goal_id: UUID, version: int, correlation_id: UUID) -> str:
-        if not self.current(goal_id, version):
+        if not self.reconcile_current(goal_id, version):
             return "obsolete"
         goal = self.goals.version(goal_id, version)
         self.validator.validate(goal)
@@ -78,11 +89,22 @@ class DiscoveryWorker:
         queries = ([criteria["product"]["query"]] if goal["goal_type"] == "product_purchase"
                    else [item["name"] for item in criteria["items"][:self.max_sources]])
         seen, successful = set(), 0
+        result_groups = []
         for query in queries:
             results = self.provider.search(query, limit=self.max_sources).get("results", [])
-            for item in results[:self.max_sources]:
-                if len(seen) >= self.max_sources:
-                    break
+            result_groups.append(iter(results[:self.max_sources]))
+
+        # Round-robin across recurring items so the first query cannot consume the
+        # entire source budget. Product purchase naturally has one result group.
+        while result_groups and len(seen) < self.max_sources:
+            progressed = False
+            for group in list(result_groups):
+                try:
+                    item = next(group)
+                except StopIteration:
+                    result_groups.remove(group)
+                    continue
+                progressed = True
                 if not isinstance(item, dict) or not isinstance(item.get("url"), str):
                     continue
                 try:
@@ -98,15 +120,18 @@ class DiscoveryWorker:
                     continue
                 if url in seen:
                     continue
-                if not self.current(goal_id, version):
+                if not self.reconcile_current(goal_id, version):
                     return "obsolete"
                 seen.add(url)
                 source = self.registry.register(url)
                 self.registry.subscribe(goal_id, version, source.source_id)
                 result = self.provider.scrape(source.canonical_url)
-                if not self.current(goal_id, version):
-                    self.registry.reconcile(goal_id, current_version=version, lifecycle="paused")
+                if not self.reconcile_current(goal_id, version):
                     return "obsolete"
                 self.evidence.submit(source, result, attempt_id=uuid4(), correlation_id=correlation_id)
                 successful += result.product.success
+                if len(seen) >= self.max_sources:
+                    break
+            if not progressed:
+                break
         return "extracted" if successful else "no_evidence"

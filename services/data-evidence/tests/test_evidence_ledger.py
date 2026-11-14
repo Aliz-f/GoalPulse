@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from goalpulse_evidence.ledger import Capture, EvidenceLedger
+from goalpulse_evidence.ledger import AttemptConflict, Capture, EvidenceLedger, parse_timestamp, valid_uri
 from fake_evidence_repository import MemoryRepository
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -230,3 +230,22 @@ def test_raw_scraped_instructions_remain_inert_text(observation, capture):
 def test_bad_capture_metadata_is_rejected(capture, overrides):
     with pytest.raises(ValueError):
         replace(capture, **overrides)
+
+
+def test_invalid_rfc3339_offset_and_percent_escape_are_rejected():
+    with pytest.raises(ValueError, match="timezone offset"):
+        parse_timestamp("2026-11-14T12:00:00+00:99")
+    assert not valid_uri("https://example.com/%ZZ")
+    assert valid_uri("https://example.com/%7Eitem")
+
+
+def test_external_attempt_id_is_idempotent_and_conflicts_on_changed_data(observation, capture):
+    repository = MemoryRepository()
+    service = ledger(repository)
+    attempt_id = uuid4()
+    first = service.record(observation, capture, correlation_id=CORRELATION, attempt_id=attempt_id)
+    replay = service.record(observation, capture, correlation_id=CORRELATION, attempt_id=attempt_id)
+    assert replay.duplicate and replay.attempt_id == first.attempt_id == str(attempt_id)
+    observation["unit_price_eur_cents"] += 1
+    with pytest.raises(AttemptConflict):
+        service.record(observation, capture, correlation_id=CORRELATION, attempt_id=attempt_id)

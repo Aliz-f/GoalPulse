@@ -36,6 +36,15 @@ class ProviderError(Exception):
 
     def __init__(self, code: str, *, status: int | None = None,
                  retry_after_seconds: float | None = None) -> None:
+        if retry_after_seconds is not None:
+            if not isinstance(retry_after_seconds, (int, float)) or isinstance(retry_after_seconds, bool):
+                retry_after_seconds = None
+            elif not math.isfinite(retry_after_seconds) or retry_after_seconds < 0:
+                retry_after_seconds = None
+            else:
+                # Provider headers are untrusted. Preserve long backoff intent while
+                # keeping datetime arithmetic bounded for durable schedulers.
+                retry_after_seconds = min(float(retry_after_seconds), 86_400)
         self.code = code
         self.status = status
         self.retry_after_seconds = retry_after_seconds

@@ -37,13 +37,17 @@ def parse_timestamp(value: str) -> datetime:
     """Validate RFC3339 even when jsonschema's optional format extras are absent."""
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})", value):
         raise ValueError("Expected RFC3339 timestamp with timezone")
+    offset = re.search(r"([+-])(\d{2}):(\d{2})$", value)
+    if offset and (int(offset.group(2)) > 23 or int(offset.group(3)) > 59):
+        raise ValueError("Expected a valid RFC3339 timezone offset")
     return utc(datetime.fromisoformat(value.upper().replace("Z", "+00:00")))
 
 
 def valid_uri(value: str) -> bool:
     """Portable URI check for frozen fields, without optional validator packages."""
     if (not isinstance(value, str) or any(c.isspace() or ord(c) < 32 or ord(c) > 127 for c in value)
-            or re.search(r'[<>"{}|\\^`]', value)):
+            or re.search(r'[<>"{}|\\^`]', value)
+            or re.search(r"%(?![0-9A-Fa-f]{2})", value)):
         return False
     try:
         parsed = urlsplit(value)
@@ -139,6 +143,10 @@ class Stored:
     reason: str | None = None
 
 
+class AttemptConflict(ValueError):
+    """An external idempotency key was reused for different extraction data."""
+
+
 class Transaction(Protocol):
     def add_attempt(self, attempt: Attempt) -> tuple[str, bool]: ...
     def add_observation(self, observation: dict, attempt_id: str,
@@ -206,7 +214,8 @@ class EvidenceLedger:
             return "OBSERVED_AT_MISMATCH"
         return None
 
-    def record(self, observation: dict | None, capture: Capture, *, correlation_id: UUID) -> Stored:
+    def record(self, observation: dict | None, capture: Capture, *, correlation_id: UUID,
+               attempt_id: UUID | None = None) -> Stored:
         """Atomically record an attempt, valid snapshot, provenance and outbox event.
 
         The input is a normalized v1 candidate from private service code. Invalid or
@@ -215,6 +224,8 @@ class EvidenceLedger:
         """
         if not isinstance(correlation_id, UUID):
             raise ValueError("correlation_id must be UUID")
+        if attempt_id is not None and not isinstance(attempt_id, UUID):
+            raise ValueError("attempt_id must be UUID")
         observation = deepcopy(observation)
         now = utc(self.clock())
         reason = self._reason(observation, capture, now)
@@ -232,7 +243,7 @@ class EvidenceLedger:
             "fallback_fetched_at": timestamp(capture.fetched_at) if capture.observed_at() is None else None,
             "candidate": semantic, "reason": reason,
         })
-        attempt = Attempt(str(uuid4()), capture, attempt_fingerprint,
+        attempt = Attempt(str(attempt_id or uuid4()), capture, attempt_fingerprint,
                           "rejected" if reason else "accepted", reason, now)
         with self.repository.transaction() as tx:
             attempt_id, new_attempt = tx.add_attempt(attempt)
@@ -252,18 +263,20 @@ class EvidenceLedger:
             return Stored(True, attempt_id, observation_id, duplicate=not created)
 
     def record_failure(self, capture: Capture, *, reason: str,
-                       fingerprint_data: dict, correlation_id: UUID) -> Stored:
+                       fingerprint_data: dict, correlation_id: UUID,
+                       attempt_id: UUID | None = None) -> Stored:
         """Persist a private normalizer failure without inventing an Observation."""
         allowed = {"UNSUPPORTED_CURRENCY", "UNSUPPORTED_DESTINATION", "MISSING_UNIT_PRICE",
                    "MISSING_PRODUCT_NAME", "INVALID_UNIT", "UNKNOWN_PACKAGING", "INVALID_MONEY",
                    "NON_INTEGRAL_PRICE", "INVALID_FACTS", "CONFLICTING_TAX", "UNKNOWN_OBSERVED_AT"}
-        if reason not in allowed or not isinstance(correlation_id, UUID):
+        if (reason not in allowed or not isinstance(correlation_id, UUID)
+                or (attempt_id is not None and not isinstance(attempt_id, UUID))):
             raise ValueError("Invalid internal failure metadata")
         now = utc(self.clock())
         fingerprint = digest({"source_id": str(capture.source_id), "reason": reason,
                               "request_id": capture.provider_request_id,
                               "fetched_at": timestamp(capture.fetched_at), "facts": fingerprint_data})
         with self.repository.transaction() as tx:
-            attempt_id, created = tx.add_attempt(Attempt(str(uuid4()), capture, fingerprint,
-                                                        "rejected", reason, now))
-            return Stored(False, attempt_id, duplicate=not created, reason=reason)
+            stored_attempt_id, created = tx.add_attempt(Attempt(str(attempt_id or uuid4()), capture,
+                                                        fingerprint, "rejected", reason, now))
+            return Stored(False, stored_attempt_id, duplicate=not created, reason=reason)

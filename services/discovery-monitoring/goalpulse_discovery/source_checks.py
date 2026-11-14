@@ -58,8 +58,13 @@ class SourceCheckJobs:
                     state = "done"
                 except ProviderError as error:
                     retryable = error.code in ("NETWORK_ERROR", "RATE_LIMITED") or error.status in (408, 500, 502, 503, 504)
-                    state = "pending" if retryable and attempts + 1 < self.max_attempts else "dead"
-                    result, delay = error.code, max(delay, error.retry_after_seconds or 0)
+                    retry_after = error.retry_after_seconds or 0
+                    remaining = max(0, (deadline - now).total_seconds())
+                    if retryable and retry_after > remaining:
+                        state, result, delay = "dead", "RETRY_AFTER_DEADLINE", 0
+                    else:
+                        state = "pending" if retryable and attempts + 1 < self.max_attempts else "dead"
+                        result, delay = error.code, max(delay, retry_after)
                 except ValueError:
                     state, result = "dead", "INVALID_SOURCE_OR_PAYLOAD"
                 except Exception:

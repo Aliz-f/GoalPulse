@@ -19,6 +19,9 @@ def validator(path: Path):
             return True
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})", value):
             return False
+        offset = re.search(r"([+-])(\d{2}):(\d{2})$", value)
+        if offset and (int(offset.group(2)) > 23 or int(offset.group(3)) > 59):
+            return False
         return datetime.fromisoformat(value.upper().replace("Z", "+00:00")).utcoffset() is not None
 
     strict = validators.extend(Draft202012Validator, type_checker=Draft202012Validator.TYPE_CHECKER.redefine(

@@ -1,4 +1,4 @@
-"""Private source/subscription registry; unapproved internal HTTP routes are absent."""
+"""Source/subscription registry behind the accepted authenticated read API."""
 
 from dataclasses import dataclass
 from hashlib import sha256

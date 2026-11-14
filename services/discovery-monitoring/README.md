@@ -1,17 +1,20 @@
 # discovery-monitoring — GoalPulse service
 
-**Implementation status: private components for D3-DM-01..06 implemented and tested offline.**
+**Implementation status: service components for D3-DM-01..06 implemented and tested offline.**
 Provider adapter, PostgreSQL registry/jobs, discovery worker, monitor lifecycle,
-webhook verification/enqueue core and direct-operation limits are present. HTTP
-routes/auth and production worker/broker wiring remain pending accepted contracts
-and platform setup. Live acceptance has not passed; ICP-01 approvals are still pending.
+webhook verification/enqueue core, direct-operation limits, and the accepted
+authenticated source read routes are present. Production worker/broker wiring and
+live acceptance remain pending platform setup.
 
 - [Service specification](../../docs/implementation/03-discovery-monitoring.md)
 - [All seven services and integration constraints](../../docs/implementation/README.md)
 - [Master task backlog](../../tasks/MASTER_BACKLOG.md)
 - [Coding-agent rules](../../AGENTS.md)
 
-**Before coding:** locate this service's task IDs in its assigned developer's task file. Follow versioned frozen contracts. `internal.proposed.v1.yaml` needs formal signoff before becoming an implementation contract. Do not guess interfaces or read other services' databases.
+**Before coding:** locate this service's task IDs in its assigned developer's task
+file. Follow versioned frozen contracts. The historically named
+`internal.proposed.v1.yaml` is accepted under ICP-01/08 and ADR-0002. Do not guess
+additional interfaces or read other services' databases.
 
 ## D3-DM-01 provider adapter
 
@@ -99,8 +102,11 @@ No driver, HTTP server, credential storage backend or background process is
 installed/started automatically. `SecretStore` needs a real server-side secret
 manager before webhook-enabled monitor creation can be used operationally.
 
-GoalReader and EvidenceSink are explicitly injected mock ports while ICP-01 is
-pending. They do not implement proposed paths or send an ad hoc request payload.
+`goalpulse_discovery.api.create_app` exposes only the accepted authenticated source
+metadata/subscription reads. It requires a signed service JWT with
+`dm.sources.read`; token issuer, audience and secret use the D1-owned
+`SERVICE_JWT_*` settings. GoalReader and EvidenceSink remain injected ports for
+production client/startup wiring; they do not invent alternate wire shapes.
 The provider receipt core also has no HTTP ingress yet: coordinated routing must
 provide trusted per-monitor receiver configuration, raw-body limits and error
 status translation. RabbitMQ queue/manual-ACK/retry/DLQ startup wiring belongs to

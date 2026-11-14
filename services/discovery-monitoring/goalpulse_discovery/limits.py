@@ -7,6 +7,7 @@ count is not presented as a count of individual network attempts or account usag
 
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+import math
 from threading import BoundedSemaphore
 from uuid import uuid4
 
@@ -52,6 +53,11 @@ class UsageStore:
                now: datetime, retry_after: float = 0) -> None:
         if credits is not None and (type(credits) is not int or credits < 0):
             raise ValueError("Invalid reported credits")
+        if (now.utcoffset() is None or not isinstance(retry_after, (int, float))
+                or isinstance(retry_after, bool) or not math.isfinite(retry_after)
+                or retry_after < 0):
+            raise ValueError("Invalid completion timing")
+        retry_after = min(float(retry_after), 86_400)
         with self.database.transaction() as cursor:
             cursor.execute("SELECT day FROM provider_operations WHERE operation_id=%s", (str(identifier),))
             row = cursor.fetchone()

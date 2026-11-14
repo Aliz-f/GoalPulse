@@ -2,22 +2,22 @@
 
 ## Completion status
 
-Private components cover every Developer 3 task area. **The eleven tasks are not
-all accepted/integrated.** HTTP/auth contracts and live infrastructure remain
-unavailable. The code exposes no unapproved API and uses explicitly injected mock
-ports while ICP-01 is pending, as permitted by the implementation blueprint.
+Components cover every Developer 3 task area. **The eleven tasks are not all
+operationally accepted/integrated.** ICP-01/08 are accepted and their D3-owned
+authenticated source/extraction/observation routes are implemented. Live provider,
+database, broker and multi-service infrastructure acceptance remains unavailable.
 
 | Task | Implemented and tested offline | Remaining acceptance / integration |
 |---|---|---|
 | D3-DM-01 | Injectable provider adapter, documented REST operations, bounded retry, cache provenance, redacted probe. | Real example.com + product feasibility checks; local API key absent. |
-| D3-DM-02 | PostgreSQL sources/subscriptions, variant-preserving canonicalization, public DNS checks. | Approved routes/auth and GM mocks; actual SQL checks; provider egress/redirect validation. |
+| D3-DM-02 | PostgreSQL sources/subscriptions, variant-preserving canonicalization, public DNS checks and authenticated accepted source reads. | Actual SQL checks; provider egress/redirect validation. |
 | D3-DM-03 | Strict activation validation, atomic inbox/jobs, runtime/version rechecks, bounded initial discovery/scrape. | Approved GM/DE HTTP adapters and DTOs; RabbitMQ consumer startup/manual ACK/retry/DLQ; live vertical slice. |
 | D3-DM-04 | Shared monitor reservation, secret references, baseline handling, active-source checks, pause/resume reconciliation, provider interval/status calls. | Real secret backend, polling/scheduler entrypoint, approved runtime/active-goal adapters and live monitor acceptance. |
 | D3-DM-05 | Raw-body HMAC, freshness/body/header/monitor validation, event/run deduplication, bounded follow-up jobs. | Admitted HTTP ingress/trusted receiver config, actual secret storage and live delivery/retry tests. |
 | D3-DM-06 | Durable daily operation budgets/cost reservations, resource TTL, process concurrency, unknown/pending usage, Retry-After propagation. | Signed-off Check Now API, runtime wiring and provider account/scheduled-monitor usage reconciliation. |
 | D3-DE-01 | Immutable snapshots/provenance, failure ledger, stable fingerprints, atomic outbox/migrations. | Actual PostgreSQL migration/transaction/immutability checks. |
-| D3-DE-02 | Explicit facts, exact EUR cents, confirmed packaging conversions, tax/shipping/stock unknown semantics, explicit model preservation. | Approved ExtractionSubmission DTO/route/auth and reviewed policy before checked evidence promotion. |
-| D3-DE-03 | Private by-ID/source SQL queries, bounded newest ordering, strict revalidation. | Approved M2M auth/routes and consumer HTTP/authorization acceptance. |
+| D3-DE-02 | Explicit facts, exact EUR cents, confirmed packaging conversions, accepted ExtractionSubmission route, attempt idempotency and no caller trust promotion. | Reviewed policy before checked evidence promotion; live producer acceptance. |
+| D3-DE-03 | By-ID/source SQL queries, bounded newest ordering, strict revalidation and authenticated accepted GET routes. | Consumer HTTP acceptance against a live service. |
 | D3-DE-04 | Outbox worker, stable IDs, confirms, persistent mandatory publication, bounded retry/dead state, Pika channel adapter. | Platform-created channel/queues/timeouts, driver/runtime packaging and live broker recovery tests. |
 | D3-DE-05 | Missing facts, packaging/tax ambiguity, cache time, disputed evidence, duplicate and ICP-13 regressions. | Actual GE consumer integration and audited live source provenance. |
 
@@ -49,16 +49,16 @@ Frozen v1 schemas/event routing/Gateway OpenAPI are unchanged. DE alone produces
 existing `evidence.updated.v1`; DM never publishes it. Private mock ports are not
 claimed as approved HTTP contracts. No user or service authentication is invented.
 
-ICP-01 approval is still pending in the local decision log and was explicitly
-confirmed earlier by Developer 3. AGENTS.md sections 1.6/2.1 require holding those
-interfaces. ICP-08, Check Now and integration ADRs require coordinated signoff.
+ICP-01 and ICP-08 are accepted in the decision log and ADR-0002. D3 implements
+only its accepted routes and duplicates the D1-selected ServiceBearer verification
+without importing another service's private modules. Check Now remains a separate
+unapproved interface and is not exposed.
 
-ICP-13 stays deferred per the user. No condition or arbitrary attribute fields were
-added. Explicit `model` is preserved; missing model stays null. Excerpts never create
-structured condition/model/stock/shipping/tax proof, and condition is not hidden in
-names/prices. Normalization stays unverified, or disputed on conflicting signals;
-it cannot promote provider confidence to checked. A GPU-new requirement must stay
-unknown in GE and cannot produce a verified opportunity from this evidence.
+ICP-13 Phase 1 handling is approved by Developers 1 and 4; the versioned evidence
+extension remains deferred. No v1 condition or arbitrary attribute fields were
+added. Explicit `model` is usable only through an explicit exact-model mapping;
+missing condition evidence remains `unknown`. The fixtures now separate a safe
+`condition:any` exact-model satisfied example from a `condition:new` unknown example.
 
 ## Integration impact and risks
 
@@ -79,17 +79,19 @@ unknown in GE and cannot produce a verified opportunity from this evidence.
 - Usage metrics describe logical direct operations, not all network retries or
   account spending. Missing/retried usage stays unknown and retains its reservation;
   scheduled monitor usage is explicitly unknown until provider reconciliation.
-- D4 can reuse frozen synthetic Observations and the private test ports. There are
-  no running approved subscription/evidence HTTP endpoints or verified live offers.
+- D4 can reuse frozen synthetic Observations and the accepted authenticated read
+  handlers. No service process or verified live offer was started by this change.
 
 ## Verification
 
-From repository root with `.venv/Scripts/python.exe` (Python 3.13.5):
+Latest remediation verification ran from the repository root with Python 3.11.5.
+Python 3.12 was unavailable locally, so the same commands still require the
+repository's Python 3.12 CI job before merge.
 
 | Command | Result |
 |---|---|
 | `scripts/validate_contracts.py` | PASS: 5 schemas, 11 examples, 4 event routes, Gateway OpenAPI. |
-| `-m pytest -q` | **182 passed, 7 skipped**. |
+| `-m pytest -q` | **233 passed, 7 skipped**. |
 | `-m compileall -q services/discovery-monitoring/goalpulse_discovery services/data-evidence/goalpulse_evidence` | PASS. |
 | `git diff --check` | PASS. |
 

@@ -20,7 +20,7 @@ class MemoryRegistry:
     resolver = staticmethod(lambda _: ["93.184.216.34"])
 
     def __init__(self):
-        self.sources, self.links = {}, set()
+        self.sources, self.links, self.reconciliations = {}, set(), []
 
     def register(self, url):
         from urllib.parse import urlsplit
@@ -32,7 +32,12 @@ class MemoryRegistry:
         self.links.add((goal_id, version, source_id))
 
     def reconcile(self, goal_id, **kwargs):
-        self.links = {link for link in self.links if link[0] != goal_id}
+        self.reconciliations.append((goal_id, kwargs))
+        self.links = {
+            link for link in self.links
+            if link[0] != goal_id
+            or (kwargs["lifecycle"] == "active" and link[1] == kwargs["current_version"])
+        }
 
 
 def setup_worker(*, active=True, product_success=True):
@@ -115,6 +120,7 @@ def test_event_is_persisted_before_consumer_can_ack():
 
 
 @pytest.mark.parametrize("field,value", [("occurred_at", "2026-11-14T10:00:00"),
+                                         ("occurred_at", "2026-11-14T10:00:00+00:99"),
                                          ("goal_version", 1.0)])
 def test_activation_rejects_timezone_free_time_and_float_version(field, value):
     event = json.loads((ROOT / "contracts/examples/event.goal-activated.json").read_text(encoding="utf-8"))
@@ -126,3 +132,43 @@ def test_activation_rejects_timezone_free_time_and_float_version(field, value):
     with pytest.raises(ValidationError):
         ActivationInbox(store, schema_directory=ROOT / "contracts/schemas").accept(event)
     store.accept.assert_not_called()
+
+
+def test_stale_scrape_reconciles_with_authoritative_new_version():
+    worker, reader, provider, registry, sink, goal = setup_worker()
+    goal_id, v2_source = UUID(goal["goal_id"]), uuid4()
+    registry.links.add((goal_id, 2, v2_source))
+    reader.runtime.side_effect = [
+        Runtime(goal_id, 1, "active"),
+        Runtime(goal_id, 1, "active"),
+        Runtime(goal_id, 2, "active"),
+    ]
+    assert worker.run(goal_id, 1, uuid4()) == "obsolete"
+    assert (goal_id, 2, v2_source) in registry.links
+    assert registry.reconciliations[-1][1] == {"current_version": 2, "lifecycle": "active"}
+    sink.submit.assert_not_called()
+
+
+def test_recurring_procurement_discovery_balances_source_budget_across_items():
+    goal = json.loads((ROOT / "contracts/examples/goal-spec.procurement.json").read_text(encoding="utf-8"))
+    goal_id = UUID(goal["goal_id"])
+    reader = Mock()
+    reader.version.return_value = goal
+    reader.runtime.return_value = Runtime(goal_id, 1, "active")
+    provider = Mock()
+    provider.search.side_effect = [
+        {"results": [{"url": "https://coffee.example/one"}, {"url": "https://coffee.example/two"}]},
+        {"results": [{"url": "https://milk.example/one"}, {"url": "https://milk.example/two"}]},
+    ]
+    now = datetime(2026, 11, 14, 12, tzinfo=timezone.utc)
+    provider.scrape.return_value = ScrapeResult(
+        "https://example.com/item", "request", now, 0, now,
+        Output(True, {}), Output(True, "fixture"),
+    )
+    registry, sink = MemoryRegistry(), Mock()
+    worker = DiscoveryWorker(reader, provider, registry, sink,
+                             schema_directory=ROOT / "contracts/schemas", max_sources=2)
+    assert worker.run(goal_id, 1, uuid4()) == "extracted"
+    assert {source.hostname for source in registry.sources.values()} == {
+        "coffee.example", "milk.example"
+    }

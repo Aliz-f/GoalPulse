@@ -1,1 +1,1 @@
-"""Private Data & Evidence storage; no unapproved HTTP interface is exposed."""
+"""Data & Evidence storage and accepted authenticated internal API components."""

@@ -3,6 +3,8 @@
 from contextlib import contextmanager
 from copy import deepcopy
 
+from goalpulse_evidence.ledger import AttemptConflict
+
 
 class MemoryRepository:
     def __init__(self, fail_at=None):
@@ -21,6 +23,11 @@ class MemoryTransaction:
         self.state, self.fail_at = state, fail_at
 
     def add_attempt(self, attempt):
+        for existing in self.state["attempts"].values():
+            if existing.attempt_id == attempt.attempt_id:
+                if existing.fingerprint != attempt.fingerprint:
+                    raise AttemptConflict("attempt_id was reused for different extraction data")
+                return existing.attempt_id, False
         existing = self.state["attempts"].get(attempt.fingerprint)
         if existing:
             return existing.attempt_id, False

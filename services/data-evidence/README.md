@@ -1,24 +1,27 @@
 # data-evidence — GoalPulse service
 
-**Implementation status: private components for D3-DE-01..05 implemented and tested offline.**
+**Implementation status: service components for D3-DE-01..05 implemented and tested offline.**
 Storage, normalization, evidence queries, outbox publication and quality tests are
-present. HTTP ingestion/reads/auth, worker startup and live PostgreSQL/RabbitMQ
-acceptance remain pending approved contracts and platform setup. ICP-01 is still
-awaiting the affected owners' approvals and an accepted ADR.
+present. Accepted authenticated HTTP ingestion/reads are implemented; worker startup
+and live PostgreSQL/RabbitMQ acceptance remain pending platform setup.
 
 - [Service specification](../../docs/implementation/04-data-evidence.md)
 - [All seven services and integration constraints](../../docs/implementation/README.md)
 - [Master task backlog](../../tasks/MASTER_BACKLOG.md)
 - [Coding-agent rules](../../AGENTS.md)
 
-**Before coding:** locate this service's task IDs in its assigned developer's task file. Follow versioned frozen contracts. `internal.proposed.v1.yaml` needs formal signoff before becoming an implementation contract. Do not guess interfaces or read other services' databases.
+**Before coding:** locate this service's task IDs in its assigned developer's task
+file. Follow versioned frozen contracts. The historically named
+`internal.proposed.v1.yaml` is accepted under ICP-01/08 and ADR-0002. Do not guess
+additional interfaces or read other services' databases.
 
 ## D3-DE-01 storage boundary
 
 `goalpulse_evidence.ledger.EvidenceLedger` accepts an already-normalized
-`Observation.v1` candidate and private server capture metadata. This is a Python
-storage interface, **not** an implementation of the proposed ExtractionSubmission
-HTTP contract. It uses the authoritative JSON schemas supplied through an explicit
+`Observation.v1` candidate and private server capture metadata. The authenticated
+`api.py` adapter implements the accepted ExtractionSubmission HTTP contract and
+passes exact attempt idempotency keys into this storage boundary. It uses the
+authoritative JSON schemas supplied through an explicit
 `schema_directory`; it does not copy or modify v1 schemas.
 
 - Missing price records `MISSING_UNIT_PRICE` in `extraction_attempts`; no observation
@@ -94,11 +97,10 @@ See [Developer 3 current status](reports/DEVELOPER-3-CURRENT-STATUS.md) for task
   of rounded. Inclusive tax contributes zero additional tax only when explicitly
   established; additional/unknown tax and unknown shipping remain distinct.
 - `FactIngestor` stores normalizer rejection codes in the failure ledger and valid
-  strict snapshots through the atomic observation/outbox path. No HTTP receipt
-  status or request shape is assumed before ICP-01 acceptance.
+  strict snapshots through the atomic observation/outbox path.
 - `reads.EvidenceReads` queries the owned DB by ID or bounded source/newest order
-  and revalidates every returned snapshot. The component expects a future M2M
-  authenticated handler; it exposes no HTTP route or homemade identity scheme.
+  and revalidates every returned snapshot. `api.create_app` exposes the accepted
+  POST/GET routes with `de.extractions.write` and `de.observations.read` service scopes.
 - `publishing.OutboxPublisher` claims one row with a PostgreSQL lock, publishes the
   exact event and marks it published only after confirmation. Unconfirmed sends
   retry with a stable event ID, then go to durable dead state after a bounded
@@ -110,11 +112,11 @@ See [Developer 3 current status](reports/DEVELOPER-3-CURRENT-STATUS.md) for task
   integration work. [Pika's BlockingChannel documentation](https://pika.github.io/pika/latest/modules/adapters/blocking/)
   defines confirmation and unroutable/NACK behavior.
 
-ICP-13 stays deferred. `Observation.v1` has no product condition or arbitrary
-attribute fields. An explicitly extracted `model` is preserved; a missing model
-stays null. Excerpts never create condition/model/shipping/tax/stock proof, and
-condition is never hidden in names/prices. Normalization remains unverified by
-default, or disputed on conflicting source signals; it has no automatic checked
-upgrade. A reviewed corroboration policy is still required for checked evidence.
-GE must keep unsupported mandatory condition/attribute checks unknown, so this
-work does not establish a verified GPU-new opportunity.
+ICP-13 Phase 1 handling is approved while its versioned contract extension remains
+deferred. `Observation.v1` has no product condition or arbitrary attribute fields.
+An explicitly extracted `model` is preserved and may be used only with an explicit
+exact-model mapping; a missing or non-mapped model stays unknown. Excerpts never
+create condition/model/shipping/tax/stock proof. Normalization remains unverified by
+default, or disputed on conflicting signals, with no automatic checked upgrade.
+GE keeps unsupported mandatory condition/attribute checks unknown, so v1 evidence
+cannot verify a `condition=new` opportunity.

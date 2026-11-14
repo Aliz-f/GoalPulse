@@ -8,11 +8,8 @@
     "kind": "product_purchase",
     "product": {
       "query": "NVIDIA GeForce RTX 5070",
-      "match_policy": "equivalent_allowed",
-      "condition": "new",
-      "required_attributes": {
-        "gpu_model": "RTX 5070"
-      }
+      "match_policy": "exact_model",
+      "condition": "any"
     },
     "quantity": 1,
     "max_total_eur_cents": 60000,

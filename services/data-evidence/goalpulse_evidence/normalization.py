@@ -132,7 +132,8 @@ class FactIngestor:
     def __init__(self, ledger: EvidenceLedger) -> None:
         self.ledger = ledger
 
-    def record(self, facts: ProductFacts, capture: Capture, *, correlation_id: UUID) -> Stored:
+    def record(self, facts: ProductFacts, capture: Capture, *, correlation_id: UUID,
+               attempt_id: UUID | None = None) -> Stored:
         try:
             observation = normalize(facts, capture)
         except NormalizationError as error:
@@ -141,5 +142,7 @@ class FactIngestor:
             fingerprint_data = {key: str(value) for key, value in asdict(facts).items()}
             return self.ledger.record_failure(capture, reason=str(error),
                                               fingerprint_data=fingerprint_data,
-                                              correlation_id=correlation_id)
-        return self.ledger.record(observation, capture, correlation_id=correlation_id)
+                                              correlation_id=correlation_id,
+                                              attempt_id=attempt_id)
+        return self.ledger.record(observation, capture, correlation_id=correlation_id,
+                                  attempt_id=attempt_id)
