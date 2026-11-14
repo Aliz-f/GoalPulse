@@ -10,6 +10,7 @@ npm install
 npm run dev            # http://localhost:3000, mock mode by default
 npm test               # unit tests (node:test, no extra deps)
 npm run e2e            # Playwright browser tests in mock mode (starts its own dev server on :3100)
+npm run demo           # handoff screencast: demo-output/*.png steps + *.webm videos (git-ignored)
 npm run typecheck && npm run lint
 ```
 

@@ -16,7 +16,20 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     trace: "retain-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: /demo\.spec\.ts$/ },
+    {
+      // Handoff screencast (D2 integration handoff): `npm run demo` → demo-output/
+      name: "demo",
+      testMatch: /demo\.spec\.ts$/,
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 800 },
+        video: { mode: "on", size: { width: 1280, height: 800 } },
+        launchOptions: { slowMo: 250 },
+      },
+    },
+  ],
   webServer: {
     command: `npm run dev -- --port ${PORT}`,
     url: `http://localhost:${PORT}`,

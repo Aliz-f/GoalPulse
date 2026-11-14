@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "node --experimental-strip-types --no-warnings --test tests/*.test.ts",
-    "e2e": "playwright test"
+    "e2e": "playwright test --project=chromium",
+    "demo": "playwright test --project=demo --reporter=list && node e2e/collect-demo.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.73.0",
