@@ -7,8 +7,9 @@ from .eligibility import Document
 
 
 class PostgresStore:
-    def __init__(self, connect: Callable):
+    def __init__(self, connect: Callable, transaction_factory: Callable | None = None):
         self.connect = connect
+        self.transaction_factory = transaction_factory or PostgresTransaction
 
     @contextmanager
     def transaction(self):
@@ -17,7 +18,7 @@ class PostgresStore:
             if connection.autocommit:
                 raise ValueError('Package processing requires autocommit disabled')
             with connection.cursor() as cursor:
-                yield PostgresTransaction(cursor)
+                yield self.transaction_factory(cursor)
             connection.commit()
         except BaseException:
             connection.rollback()
@@ -49,3 +50,8 @@ class PostgresTransaction:
         if row is None:
             return None
         return copy.deepcopy(json.loads(row[0]) if isinstance(row[0], str) else row[0])
+
+    def has_offer(self, goal_id: str, version: int, fingerprint: str) -> bool:
+        self.cursor.execute('SELECT 1 FROM action_packages WHERE goal_id=%s AND goal_version=%s '
+                            'AND offer_fingerprint=%s', (goal_id, version, fingerprint))
+        return self.cursor.fetchone() is not None

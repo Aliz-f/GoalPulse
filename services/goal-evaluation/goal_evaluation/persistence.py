@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Callable, Protocol
 from uuid import NAMESPACE_URL, uuid5
@@ -10,7 +11,7 @@ from uuid import NAMESPACE_URL, uuid5
 from .consumer import PostgresTransaction, Store
 from .domain import Contracts, Dispatcher, Document
 from .processing import EvaluationContext, GoalReader, Runtime, Subscription, uuid_string
-from .offer_identity import offer_fingerprint as snapshot_fingerprint
+from .offer_identity import business_fingerprint, offer_fingerprint as snapshot_fingerprint
 
 
 def canonical(value: object) -> str:
@@ -38,15 +39,15 @@ def evaluation_fingerprint(result: Document, evaluator_version: str) -> str:
 def offer_fingerprint(result: Document, context: EvaluationContext) -> str:
     """Exclude capture IDs/time; repeated observations of the same offer dedup.
 
-    Keep full listing path/query: variants can be different offers. Seller is the
-    normalized source hostname, not an invented merchant identifier. Any changed
-    payable component creates a different offer, scoped to the immutable goal.
+    P0 uses the ADR-0003 business key, harmonized with Notification. Seller is
+    the normalized hostname; payable components and exact selected product
+    distinguish offers without capture IDs or tracking/listing URLs.
     """
     selected = set(result['candidate_observation_ids'])
     observations = [o for o in context.observations if o['observation_id'] in selected]
     if len(observations) != len(selected) or not selected:
         raise ValueError('Offer fingerprint requires every selected observation exactly once')
-    return snapshot_fingerprint(context.goal, observations)
+    return business_fingerprint(context.goal, observations)
 
 
 class EvaluationTransaction(Protocol):
@@ -54,6 +55,7 @@ class EvaluationTransaction(Protocol):
     def reserve_offer(self, result: Document, fingerprint: str, event_id: str) -> bool: ...
     def enqueue_event(self, event: Document) -> None: ...
     def get_evaluation(self, evaluation_id: str) -> Document | None: ...
+    def legacy_offer_reserved(self, result: Document, fingerprint: str) -> bool: ...
 
 
 class ImmutableEvaluationReader:
@@ -102,6 +104,11 @@ class VerificationGuard:
             recomputed['candidate_observation_ids'] != result['candidate_observation_ids']
         ):
             return False
+        selected = set(result['candidate_observation_ids'])
+        if any(not timedelta(0) <= now - datetime.fromisoformat(o['observed_at'].replace('Z', '+00:00')) <=
+               timedelta(minutes=min(context.goal['monitoring']['max_evidence_age_minutes'], 10))
+               for o in context.observations if o['observation_id'] in selected):
+            return False
         return True
 
 
@@ -114,8 +121,14 @@ class EvaluationSink:
     can still be persisted as historical information.
     """
 
-    def __init__(self, contracts: Contracts, guard: VerificationGuard, evaluator_version: str):
-        if not evaluator_version:
+    def __init__(self, contracts: Contracts, guard: VerificationGuard,
+                 evaluator_version: str | Mapping[str, str]):
+        if isinstance(evaluator_version, Mapping):
+            if (not evaluator_version or set(evaluator_version) - {'product_purchase', 'recurring_procurement'}
+                    or any(not isinstance(v, str) or not v for v in evaluator_version.values())):
+                raise ValueError('Explicit evaluator version per registered goal type required')
+            evaluator_version = dict(evaluator_version)
+        elif not isinstance(evaluator_version, str) or not evaluator_version:
             raise ValueError('An evaluator version is required')
         self.contracts, self.guard, self.evaluator_version = contracts, guard, evaluator_version
 
@@ -141,11 +154,19 @@ class EvaluationSink:
             raise ValueError('Evaluation references missing evidence')
         verified = self.guard.eligible(result, context)
         fingerprint = offer_fingerprint(result, context) if verified else None
-        if not transaction.insert_evaluation(result, evaluation_fingerprint(result, self.evaluator_version),
-                                             self.evaluator_version):
+        version = (self.evaluator_version if isinstance(self.evaluator_version, str) else
+                   self.evaluator_version.get(context.goal['goal_type']))
+        if not version:
+            raise ValueError('No persistence evaluator version for this goal type')
+        if not transaction.insert_evaluation(result, evaluation_fingerprint(result, version), version):
             return
         transaction.enqueue_event(self._event('goal.evaluated.v1', result, context.correlation_id))
         if fingerprint is not None:
+            selected = set(result['candidate_observation_ids'])
+            legacy = snapshot_fingerprint(context.goal, [o for o in context.observations
+                                                         if o['observation_id'] in selected])
+            if legacy != fingerprint and transaction.legacy_offer_reserved(result, legacy):
+                return
             verified_event = self._event('goal.opportunity_verified.v1', result, context.correlation_id)
             if transaction.reserve_offer(result, fingerprint, verified_event['event_id']):
                 transaction.enqueue_event(verified_event)
@@ -195,6 +216,14 @@ class PostgresEvaluationTransaction(PostgresTransaction):
             'RETURNING fingerprint',
             (result['goal_id'], result['goal_version'], fingerprint, result['evaluated_at'], event_id),
         )
+        return self.cursor.fetchone() is not None
+
+    def legacy_offer_reserved(self, result: Document, fingerprint: str) -> bool:
+        self.cursor.execute(
+            'SELECT 1 FROM offer_fingerprints f LEFT JOIN outbox o ON o.event_id=f.verification_event_id '
+            'WHERE f.goal_id=%s AND f.goal_version=%s AND f.fingerprint=%s AND '
+            "(f.notification_emitted OR f.verification_event_id IS NULL OR o.status IS DISTINCT FROM 'failed')",
+            (result['goal_id'], result['goal_version'], fingerprint))
         return self.cursor.fetchone() is not None
 
     def enqueue_event(self, event: Document) -> None:

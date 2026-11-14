@@ -1,6 +1,40 @@
 # goal-evaluation — GoalPulse service
 
-**Implementation status: evaluator, mock processing, PostgreSQL persistence and outbox relay adapters implemented; service not runnable yet.**
+**Implementation status: deterministic evaluators, PostgreSQL inbox/outbox,
+authenticated internal evaluation API, durable retry journal and Rabbit worker/
+confirmed-publisher composition implemented. Live integration remains gated.**
+
+Phase 2 `R2-D4-04` now registers recurring procurement in the same runtime, with
+per-goal-type evaluator versions and explicit missing/unknown basket coverage.
+Normalization remains unconfirmed in live profiles. The independent recorded
+runner exercises L/kg/pcs costs, worker replay and the saved-evaluation API:
+
+```bash
+python services/goal-evaluation/tests/procurement_recorded_smoke.py
+```
+
+Its verified basket uses explicit synthetic one-unit facts. The real café's
+larger quantities and quality requirements remain unknown under Observation v1.
+See [recurring procurement handoff](PROCUREMENT_PHASE2_HANDOFF.md) for acceptance
+evidence, policy limits and the D1/D3 integration requirements.
+
+Phase 2 `R2-D4-01` now supplies `api.create_app`, `auth.ServiceAuthorizer` and
+`runtime.build_runtime`, together with authenticated HTTP readers. Apply owned
+migrations 001..004 before running. The P0 product evaluator enforces
+min(goal age, 30 minutes), and verified event creation/publication additionally
+requires original proof no older than min(goal age, 10 minutes). Its business
+fingerprint now matches Notification's ADR-0003 product policy.
+
+Production startup still needs an approved complete goal-version-to-sources
+lookup and D1's service identity/private process configuration. The runtime
+rejects a missing lookup; it never assumes the trigger is the goal's only source.
+See
+[Phase 2 handoff and interface proposal](PHASE2_HANDOFF.md) for the exact gap,
+implemented scope and remaining acceptance gates.
+
+The sections below retain the Phase 1 implementation record. The Phase 2
+handoff describes the current adapters, dependencies, migrations and policy
+changes, superseding earlier statements that these were not implemented.
 
 The `goal_evaluation` package provides a pure `GoalEvaluator` protocol, strict
 dispatch and local frozen-schema validation, and an injectable evidence-event

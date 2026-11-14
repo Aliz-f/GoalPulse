@@ -187,7 +187,21 @@ class EvidenceProcessor:
                     if linked_source == source:
                         if oid in seen and seen[oid] != triggered:
                             raise ValueError('Trigger snapshot differs from immutable observation')
-                        seen[oid] = triggered
+                        # A nonempty DE latest read is canonical. An older
+                        # citation must not mask a current downgrade/changed
+                        # snapshot because its UUID happens to sort later.
+                        if not seen:
+                            seen[oid] = triggered
+                        else:
+                            newest = max(seen.values(), key=lambda row: (
+                                datetime.fromisoformat(row['observed_at'].replace('Z', '+00:00')),
+                                row['observation_id']))
+                            if (newest['evidence']['reliability'] == 'checked'
+                                    and datetime.fromisoformat(triggered['observed_at'].replace('Z', '+00:00')) >
+                                    datetime.fromisoformat(newest['observed_at'].replace('Z', '+00:00'))):
+                                # Do not restore an old cheap offer while the
+                                # newest-first read lags behind a newer trigger.
+                                raise RetryableUpstreamError('canonical_evidence_not_current')
                     cache[linked_source] = (max(seen.values(), key=lambda row: (
                         datetime.fromisoformat(row['observed_at'].replace('Z', '+00:00')),
                         row['observation_id'],

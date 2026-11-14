@@ -1,8 +1,31 @@
 # notification — GoalPulse service
 
-**Implementation status: notification core, local owned reads/preferences and
-durable retry-policy adapters implemented with mock tests; no runnable
-HTTP/broker service yet.**
+**Implementation status: notification core, private HTTP app factory,
+authenticated HTTP readers, Rabbit delivery adapter and worker composition
+implemented. Live deployment/acceptance remains pending.**
+
+### Phase 2 — R2-D4-02
+
+`notification.api.create_app` supplies the owner-scoped list/mark-read handlers
+using required D1 authorization dependencies. `notification.runtime.build_worker`
+wires the SQL store, service-token readers, consumer and durable retry journal to
+RabbitMQ. P0 product notifications use the ADR-0003 business fingerprint, require
+proof at most ten minutes old (or the stricter goal limit), and share a sliding
+one-hour rate cap across versions of the same owner/goal. Apply
+`migrations/003_goal_rate_limit.sql` after the existing migrations. Transactions
+explicitly use READ COMMITTED so the rate check sees preceding lock holders'
+committed notifications.
+
+The API factory opens no ports; D1 must bind accepted service authentication and
+trusted owner forwarding before routing through Gateway. The Phase 2 extension's
+merge approval, GE runtime, live database/broker recovery and cross-service
+fingerprint alignment remain integration gates. See
+[Phase 2 implementation and acceptance evidence](PHASE2_HANDOFF.md) for exact
+interfaces, migration/upgrade caveats and PASS/NOT RUN results.
+
+The sections below preserve the Phase 1 implementation record. The Phase 2
+handoff above describes the current adapters and supersedes the earlier notes
+that HTTP/readers/broker adapters had not yet been implemented.
 
 The local `notification` package consumes only the frozen
 `goal.opportunity_verified.v1` event. It validates producer/envelope and goal

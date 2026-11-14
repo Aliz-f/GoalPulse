@@ -35,7 +35,8 @@ def load(name):
 
 class MemoryDB:
     def __init__(self):
-        self.data = dict(evaluations={}, fingerprints=set(), offers=set(), outbox={}, inbox=set(), offer_events={}, confirmed=set())
+        self.data = dict(evaluations={}, fingerprints=set(), offers=set(), outbox={}, inbox=set(),
+                         offer_events={}, confirmed=set(), evaluator_versions={})
         self.fail_commit = False
         self.fail_enqueue = False
 
@@ -62,6 +63,7 @@ class MemoryDB:
         if result['evaluation_id'] in self.data['evaluations']:
             raise ValueError('immutable ID collision')
         self.data['evaluations'][result['evaluation_id']] = copy.deepcopy(result)
+        self.data['evaluator_versions'][result['evaluation_id']] = version
         self.data['fingerprints'].add(fingerprint)
         return True
 
@@ -74,6 +76,14 @@ class MemoryDB:
         self.data['offers'].add(key)
         self.data['offer_events'][key] = event_id
         return True
+
+    def legacy_offer_reserved(self, result, fingerprint):
+        key = (result['goal_id'], result['goal_version'], fingerprint)
+        if key not in self.data['offers']:
+            return False
+        event_id = self.data['offer_events'].get(key)
+        return (key in self.data['confirmed'] or event_id is None
+                or self.data['outbox'][event_id]['status'] != 'failed')
 
     def enqueue_event(self, event):
         if self.fail_enqueue:

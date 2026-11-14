@@ -1,0 +1,35 @@
+R2-D4-03 — redacted recorded-test evidence
+Date: 2026-11-14
+Branch: feat/r2-d4-03-agent-integration
+State: uncommitted Agent Integration work and documented P0 regression fixes
+Mode: recorded_test; live_deployment=false
+
+Executed independent smoke:
+/private/tmp/goalpulse-d4-venv/bin/python services/agent-integration/tests/recorded_smoke.py --output /private/tmp/goalpulse-r2-d4-03-recorded-evidence.json
+Observed: PASS recorded package worker/API smoke; synthetic evidence written
+package_count=1; acknowledged_deliveries=2
+owner_get=200; other_owner_get=404; expired_get=410
+external_network=blocked
+Output preserves approval_required=true, auto_execute=false and checkout revalidation.
+
+Executed from repository root:
+/private/tmp/goalpulse-d4-venv/bin/python scripts/validate_contracts.py
+/private/tmp/goalpulse-d4-venv/bin/python -c 'import sys, runpy; sys.modules["readline"] = None; sys.argv = ["pytest", "-q", "-rs"]; runpy.run_module("pytest", run_name="__main__")'
+git diff --check
+Observed: PASS 5 JSON Schemas + 13 examples; 4 event routes; 7 frozen Gateway paths
+Observed: 1023 passed, 19 skipped, 1 warning in 3.96s
+Observed: git diff --check PASS
+
+PASS same-time lower-UUID trust downgrade/price change no longer restores historic proof
+PASS grouped ActionPackage JSON validates against D1 Phase 2 extension schema
+PASS missing/current/disputed/changed/expired proof cannot become an actionable response
+PASS recorded stores are refused outside the explicit test profile
+NOT RUN actual AI SQL/Rabbit tests: disposable GOALPULSE_AI_TEST_DSN not configured
+NOT RUN actual Gateway service/owner authentication, P0 live path and deployment
+
+The other live SQL tests also lack their disposable DB configuration.
+Default python lacks PyYAML/pytest; the existing venv executed the checks.
+The warning is the existing Starlette/httpx TestClient deprecation.
+No dependencies were installed and no network service port was opened.
+This is recorded test evidence, not live merchant evidence or release certification.
+No credentials, bearer tokens, DSNs, raw goals or provider responses are included.

@@ -58,6 +58,9 @@ class MemoryStore:
         row = self.packages.get(package_id)
         return copy.deepcopy(row[1]) if row and row[0] == owner else None
 
+    def has_offer(self, goal_id, version, fingerprint):
+        return (goal_id, version, fingerprint) in self.fingerprints
+
 
 @pytest.fixture
 def setup(inputs):
@@ -90,7 +93,7 @@ def test_product_payload_whitelist_totals_safety_and_replay(setup):
     assert p['requires_checkout_revalidation']
     assert p['seller_orders'][0]['shipping_eur_cents'] == 1000
     assert p['seller_orders'][0]['items'][0]['quantity'] == '1'
-    assert p['expires_at'] == '2026-11-14T11:00:00Z'
+    assert p['expires_at'] == '2026-11-14T10:30:00Z'  # ADR-0003 product freshness cap
     assert 'secret-provider-token' not in str(p) and 'payment credentials' not in str(p)
     assert 'owner_user_id' not in p
     assert s.consumer.handle(s.inputs['event']) == 'duplicate'
@@ -311,7 +314,7 @@ def test_new_identical_capture_keeps_original_package_citations_and_expiry(setup
     item = p['seller_orders'][0]['items'][0]
     assert item['observation_id'] == s.inputs['observations'][0]['observation_id']
     assert item['observed_at'] == s.inputs['observations'][0]['observed_at']
-    assert p['expires_at'] == '2026-11-14T11:00:00Z'
+    assert p['expires_at'] == '2026-11-14T10:30:00Z'
     assert s.consumer.handle(s.inputs['event']) == 'duplicate'
 
 

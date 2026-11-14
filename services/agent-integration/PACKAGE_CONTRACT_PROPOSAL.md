@@ -1,4 +1,14 @@
-# Action Package contract — service-local proposal pending coordinated approval
+# Action Package contract — grouped DTO rationale and release handoff
+
+**Phase 2 update:** ADR-0003/MVP-08 selects the existing grouped `seller_orders`
+schema, and `contracts/openapi/gateway.phase2.extension.v1.yaml` contains that
+shape. Its coordinated merge evidence is still pending. The private app factory
+and recorded schema tests are now implemented; real Gateway routing, identity
+binding and shared contract publication remain D1-owned. The user authorized
+recorded P1 preparation before the live P0 gate. See `PHASE2_HANDOFF.md`.
+
+The remainder records the original Phase 1 proposal/rationale. Its earlier
+statements that no handler or grouped extension exists are historical.
 
 Status: the grouped `seller_orders` shape is implemented only as a service-local
 proposal and persistence artifact. ICP-02, the shared schema, public route and

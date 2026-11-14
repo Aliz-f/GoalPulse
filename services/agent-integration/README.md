@@ -1,9 +1,44 @@
 # Agent Integration — Developer 4
 
-**Status:** service-local proposed package builder, immutable PostgreSQL adapter,
-verified-event consumer, owner-filtered local reader and AI-03 mock integration
-checks implemented. No public HTTP route is implemented; database/broker/Gateway/JWT
-deployment is not verified.
+**Status:** grouped prepare-only packages, authenticated HTTP readers, private
+owner-read app factory, durable Rabbit worker/retry composition and an independent
+recorded smoke runner are implemented. Live deployment remains unverified.
+
+## Phase 2 — R2-D4-03 preparation
+
+The user explicitly authorized preparing this P1 task with recorded dependencies
+before the live P0 integration gate closes. `runtime.build_runtime` wires owned
+SQL persistence and service-token readers; `api.create_app` supplies the
+owner-only `/v1/action-packages/{package_id}` handler with a required D1 identity
+dependency. Demo rejects fixture provenance; in-memory stores are accepted only
+through explicit test-profile injection. No service port is automatically opened.
+
+You can exercise the actual worker and HTTP handler without any peer service:
+
+```bash
+python services/agent-integration/tests/recorded_smoke.py
+```
+
+Use an environment with root and service development requirements already
+installed. The JSON output identifies `mode=recorded_test` and
+`live_deployment=false`. The runner blocks outbound network connections and
+proves one package under replay, owner 200, other owner 404, expired 410, and
+immutable prepare-only output. It uses synthetic checked facts, not live offers.
+
+Apply owned migrations 001 then 002 before real SQL worker startup. Products
+expire no later than min(goal freshness, 30 minutes). Reads recheck current DE
+evidence and GM state without renewing citations or expiry. Current disputed or
+changed evidence blocks use. See [Phase 2 handoff](PHASE2_HANDOFF.md) for schema
+compatibility, replay/cutover limitations, tested evidence and deployment gates.
+
+ADR-0003 selects the existing grouped `seller_orders` shape, and D1's Phase 2
+extension contains it. The repository still records coordinated merge evidence
+pending. Gateway routing, real owner authentication and publication of shared
+contracts remain D1-owned. The accepted older internal package sketch has a flat
+shape; no conflicting internal route was implemented here.
+
+The following sections preserve the Phase 1 implementation record. Current
+Phase 2 behavior and handoff above supersede earlier no-handler/no-worker notes.
 
 ICP-01/08 are accepted upstream under ADR-0002. ICP-02 and the grouped package
 shape are not recorded as approved in the repository decision log. The service-local proposal is
