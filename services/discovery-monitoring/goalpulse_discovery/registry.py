@@ -82,3 +82,9 @@ class SourceRegistry:
         with self.database.transaction() as cursor:
             cursor.execute("SELECT DISTINCT goal_id FROM goal_source_links ORDER BY goal_id")
             return [UUID(str(row[0])) for row in cursor.fetchall()]
+
+    def goals_for_source(self, source_id: UUID) -> list[UUID]:
+        with self.database.transaction() as cursor:
+            cursor.execute("SELECT DISTINCT goal_id FROM goal_source_links WHERE source_id=%s ORDER BY goal_id",
+                           (str(source_id),))
+            return [UUID(str(row[0])) for row in cursor.fetchall()]

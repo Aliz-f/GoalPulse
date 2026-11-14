@@ -142,7 +142,7 @@ class Provider(Protocol):
     def search(self, query: str, *, limit: int = 5) -> Mapping[str, Any]: ...
     def scrape(self, url: str) -> ScrapeResult: ...
     def create_monitor(self, *, name: str, url: str, instructions: str | None = None,
-                       webhook_url: str | None = None) -> MonitorCreated: ...
+                       webhook_url: str | None = None, frequency_minutes: int = 1440) -> MonitorCreated: ...
     def fetch_run(self, monitor_id: str, run_id: str) -> Mapping[str, Any]: ...
 
 
@@ -260,7 +260,7 @@ class ContextProvider:
                             output("product", dict), output("markdown", str))
 
     def create_monitor(self, *, name: str, url: str, instructions: str | None = None,
-                       webhook_url: str | None = None) -> MonitorCreated:
+                       webhook_url: str | None = None, frequency_minutes: int = 1440) -> MonitorCreated:
         if not 1 <= len(name.strip()) <= 200:
             raise ValueError("Monitor name must contain 1 to 200 characters")
         target = {"type": "page", "url": public_https_url(url, self._resolver)}
@@ -268,7 +268,10 @@ class ContextProvider:
             if not instructions.strip():
                 raise ValueError("Instructions must not be blank")
             target["instructions"] = instructions
-        payload: dict[str, Any] = {"name": name, "target": target}
+        if type(frequency_minutes) is not int or not 10 <= frequency_minutes <= 10080:
+            raise ValueError("Invalid monitor interval")
+        payload: dict[str, Any] = {"name": name, "target": target,
+                                  "schedule": {"type": "interval", "frequency": frequency_minutes, "unit": "minutes"}}
         if webhook_url is not None:
             # Only server configuration may supply this, never a browser request.
             payload["webhook"] = {"url": public_https_url(webhook_url, self._resolver), "retry": {}}
@@ -282,6 +285,11 @@ class ContextProvider:
         if secret is not None and not isinstance(secret, str):
             raise ProviderError("INVALID_RESPONSE")
         return MonitorCreated(monitor_id, run_id, secret)
+
+    def set_monitor_status(self, monitor_id: str, status: str) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", monitor_id) or status not in ("active", "paused"):
+            raise ValueError("Invalid monitor status request")
+        self._request("PATCH", f"/v1/monitors/{quote(monitor_id)}", {"status": status})
 
     def fetch_run(self, monitor_id: str, run_id: str) -> Mapping[str, Any]:
         if not all(re.fullmatch(r"[A-Za-z0-9_-]{1,200}", value) for value in (monitor_id, run_id)):
