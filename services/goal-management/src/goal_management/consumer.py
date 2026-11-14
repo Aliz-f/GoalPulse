@@ -7,10 +7,9 @@ import time
 from typing import Any, Callable
 
 import pika
-import psycopg
 
 from .events import consume_evaluated
-from .repository import GoalRepository
+from .repository import DatabaseRepository
 
 
 EVALUATED_QUEUE = "goalpulse.goal-management.goal.evaluated.v1"
@@ -22,7 +21,7 @@ def process_delivery(
     method: Any,
     properties: Any,
     body: bytes,
-    store: GoalRepository,
+    store: Any,
     *,
     wait: Callable[[float], None] = time.sleep,
 ) -> None:
@@ -64,10 +63,12 @@ def process_delivery(
 def run() -> None:
     database_url = os.environ["GOAL_MANAGEMENT_DATABASE_URL"]
     broker_url = os.environ["RABBITMQ_URL"]
-    with psycopg.connect(database_url, autocommit=True) as connection:
-        store = GoalRepository(connection)
-        broker = pika.BlockingConnection(pika.URLParameters(broker_url))
+    store = DatabaseRepository(database_url)
+    delay = 1
+    while True:
+        broker = None
         try:
+            broker = pika.BlockingConnection(pika.URLParameters(broker_url))
             channel = broker.channel()
             channel.confirm_delivery()
             channel.basic_qos(prefetch_count=1)
@@ -78,9 +79,16 @@ def run() -> None:
                     ch, method, properties, body, store
                 ),
             )
+            delay = 1
             channel.start_consuming()
+        except KeyboardInterrupt:
+            return
+        except (pika.AMQPError, OSError):
+            time.sleep(delay)
+            delay = min(delay * 2, 30)
         finally:
-            broker.close()
+            if broker is not None and broker.is_open:
+                broker.close()
 
 
 if __name__ == "__main__":

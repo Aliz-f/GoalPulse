@@ -41,7 +41,7 @@ class Store:
 
 
 def test_successful_and_duplicate_deliveries_are_manually_acked():
-    for outcome in ("projected", "duplicate", "stale", "inactive"):
+    for outcome in ("projected", "duplicate", "stale", "inactive", "older"):
         channel = Channel()
         process_delivery(
             channel,

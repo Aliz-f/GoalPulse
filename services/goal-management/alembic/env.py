@@ -5,6 +5,10 @@ from sqlalchemy import create_engine
 
 config = context.config
 url = os.environ.get("GOAL_MANAGEMENT_DATABASE_URL", config.get_main_option("sqlalchemy.url"))
+if url.startswith("postgresql://"):
+    url = "postgresql+psycopg://" + url.removeprefix("postgresql://")
+elif url.startswith("postgres://"):
+    url = "postgresql+psycopg://" + url.removeprefix("postgres://")
 
 def run_migrations_online() -> None:
     engine = create_engine(url)
