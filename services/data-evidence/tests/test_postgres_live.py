@@ -19,6 +19,7 @@ import pytest
 from goalpulse_evidence.ledger import Capture, EvidenceLedger
 from goalpulse_evidence.migrations import apply_migrations
 from goalpulse_evidence.postgres import PostgresRepository
+from goalpulse_evidence.reads import EvidenceReads
 
 SERVICE = Path(__file__).resolve().parents[1]
 ROOT = SERVICE.parents[1]
@@ -140,3 +141,59 @@ def test_postgres_concurrent_replays_share_one_observation_and_event(database):
         with connection.cursor() as cursor:
             cursor.execute("SELECT count(*) FROM outbox WHERE observation_id = %s", (first.observation_id,))
             assert cursor.fetchone()[0] == 1
+
+
+def test_postgres_check_audit_is_immutable_and_source_read_uses_derived_snapshot(database):
+    import psycopg
+
+    from test_check_postgres import audit_record
+
+    observation, capture = candidate()
+    repository = PostgresRepository(database)
+    service = EvidenceLedger(repository, schema_directory=ROOT / "contracts/schemas")
+    original = service.record(observation, capture, correlation_id=uuid4())
+    derived = deepcopy(observation)
+    derived["observation_id"] = str(uuid4())
+    derived["evidence"]["reliability"] = "checked"
+    audit = audit_record(original.observation_id, derived["observation_id"])
+    audit["proof"] = {"claims": {"condition": "new", "shipping_eur_cents": None}}
+    # Randomize proof key so repeated opt-in integration runs remain append-only.
+    audit["proof_digest"] = uuid4().hex + uuid4().hex
+    with repository.transaction() as tx:
+        tx.lock_source(str(capture.source_id))
+        assert tx.get_observation(original.observation_id) == observation
+        assert tx.get_capture(original.observation_id) == capture
+        result_id, created = tx.add_observation(derived, tx.get_attempt_id(original.observation_id),
+                                               uuid4().hex + uuid4().hex, audit["checked_at"])
+        assert created and result_id == derived["observation_id"]
+        tx.add_provenance(result_id, capture)
+        tx.add_check(audit)
+        assert tx.get_check(audit["check_id"]) == audit
+        assert tx.proof_used(audit["proof_digest"])
+        assert tx.current_claims(str(capture.source_id), capture.observed_at()) == [audit["proof"]["claims"]]
+
+    reads = EvidenceReads(database, schema_directory=ROOT / "contracts/schemas")
+    assert reads.by_id(UUID(original.observation_id)) == observation
+    assert reads.by_source(capture.source_id) == [derived]
+    for sql in ("UPDATE evidence_checks SET decision = decision WHERE check_id = %s",
+                "DELETE FROM evidence_checks WHERE check_id = %s"):
+        with pytest.raises(psycopg.Error) as error:
+            with database() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(sql, (audit["check_id"],))
+        assert error.value.sqlstate == "55000"
+
+    replay = dict(audit, check_id=str(uuid4()))
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with repository.transaction() as tx:
+            tx.add_check(replay)
+
+    # A newly ingested contradictory candidate suppresses a checked source read
+    # immediately, even before the internal checker appends a dispute decision.
+    conflict = deepcopy(observation)
+    conflict["observation_id"] = str(uuid4())
+    conflict["unit_price_eur_cents"] += 1
+    accepted = service.record(conflict, capture, correlation_id=uuid4())
+    assert accepted.accepted
+    assert reads.by_source(capture.source_id) == [conflict]
+    assert reads.by_id(UUID(derived["observation_id"])) == derived

@@ -1,6 +1,7 @@
 """Synthetic provider responses only; no network or credentials are used."""
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import json
 
 import pytest
@@ -63,12 +64,61 @@ def test_request_shapes_authentication_and_timeout():
     assert "synthetic_test_key" not in repr(client)
 
 
+def test_access_policy_and_exact_product_jsonld_are_preserved_as_separate_proof():
+    product = {
+        "@context": "https://schema.org", "@type": "Product",
+        "url": "https://example.com/item", "name": "Synthetic fixture", "model": "MODEL-1",
+        "offers": {"@type": "Offer", "url": "https://example.com/item", "price": "3.00",
+                   "priceCurrency": "EUR", "availability": "https://schema.org/InStock",
+                   "itemCondition": "https://schema.org/NewCondition",
+                   "seller": {"@type": "Organization", "url": "https://example.com/"}},
+    }
+    client, transport, _ = provider(
+        response(scrape_payload(metadata={"jsonLd": [product]})),
+        access_policy_ids=("pol_demo_allowlist",),
+    )
+    result = client.scrape("https://example.com/item")
+    request_body = json.loads(transport.calls[0][2]["body"])
+    assert request_body["policies"] == ["pol_demo_allowlist"]
+    assert json.loads(result.seller_representation) == product
+    assert result.resolved_addresses == ("93.184.216.34",)
+    assert result.access_policy_ids == ("pol_demo_allowlist",)
+
+
+def test_ambiguous_or_wrong_url_jsonld_never_becomes_checker_proof():
+    product = {"@context": "https://schema.org", "@type": "Product",
+               "url": "https://example.com/item"}
+    for json_ld in ([product, product], [{**product, "url": "https://example.com/other"}]):
+        client, _, _ = provider(response(scrape_payload(metadata={"jsonLd": json_ld})),
+                                access_policy_ids=("pol_demo_allowlist",))
+        assert client.scrape("https://example.com/item").seller_representation is None
+
+
 def test_cached_output_is_never_relabelled_fresh():
     client, _, _ = provider(response(scrape_payload()))
     result = client.scrape("https://example.com/item")
     assert result.observed_at == NOW - timedelta(minutes=1)
     assert result.fetched_at == NOW
     assert result.request_id == "fixture-request"
+
+
+def test_scrape_retains_request_start_separately_from_response_receipt():
+    transport = FakeTransport(response(scrape_payload()))
+    moments = iter((NOW, NOW + timedelta(seconds=5)))
+    client = ContextProvider("synthetic_test_key", transport=transport, resolver=PUBLIC_DNS,
+                             clock=lambda: next(moments))
+    result = client.scrape("https://example.com/item")
+    assert result.requested_at == NOW
+    assert result.fetched_at == NOW + timedelta(seconds=5)
+    assert result.observed_at == NOW - timedelta(seconds=55)
+    assert result.provider_observed_at is None
+
+
+def test_provider_numeric_price_keeps_decimal_precision_without_binary_float():
+    raw = json.dumps(scrape_payload()).replace('"price": "3.00"', '"price": 3.01')
+    client, _, _ = provider(HttpResponse(200, {}, raw.encode()))
+    price = client.scrape("https://example.com/item").product.data["product"]["price"]
+    assert type(price) is Decimal and price == Decimal("3.01")
 
 
 @pytest.mark.parametrize("cache", [None, {}, {"age_ms": -1}, {"age_ms": True}, {"age_ms": "0"}])
@@ -176,6 +226,23 @@ def test_private_or_mixed_dns_answers_are_rejected(address):
 def test_unsafe_provider_final_url_is_not_accepted_as_evidence():
     client, _, _ = provider(response(scrape_payload(url="https://localhost/private")))
     with pytest.raises(ProviderError, match="UNSAFE_TARGET"):
+        client.scrape("https://example.com/item")
+
+
+def test_capture_address_resolution_failure_is_sanitized():
+    calls = 0
+
+    def resolver(_host):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise OSError("resolver detail must not escape")
+        return ["93.184.216.34"]
+
+    transport = FakeTransport(response(scrape_payload()))
+    client = ContextProvider("synthetic_test_key", transport=transport, resolver=resolver,
+                             clock=lambda: NOW)
+    with pytest.raises(ProviderError, match="^UNSAFE_TARGET$"):
         client.scrape("https://example.com/item")
 
 

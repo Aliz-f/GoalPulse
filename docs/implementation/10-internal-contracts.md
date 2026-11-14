@@ -28,7 +28,7 @@ Goal Management authorizes these operations with separate service-token scopes:
 | Scope | Allowed operation | Intended consumers |
 |---|---|---|
 | `gm.goal-version.read` | Immutable version read | Discovery & Monitoring, Goal Evaluation |
-| `gm.runtime.read` | Current lifecycle/version read | Goal Evaluation, Notification, Agent Integration |
+| `gm.runtime.read` | Current lifecycle/version read | Discovery & Monitoring, Goal Evaluation, Notification, Agent Integration |
 | `gm.active.read` | Active-goal reconciliation page | Discovery & Monitoring |
 
 A valid service UUID subject is required in addition to the operation scope;
