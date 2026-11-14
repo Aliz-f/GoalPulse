@@ -31,7 +31,7 @@
 7. [Agent Integration](07-agent-integration.md) — Developer 4: read-only evidence-backed handoff packages; never executes purchases.
 8. [Frontend, Gateway, Identity](08-frontend-gateway.md) — Developer 1 Gateway / Developer 2 Frontend.
 9. [Cross-service workflows, dependency/sequence, blockers](09-dependencies-workflows.md).
-10. [Internal HTTP contracts](10-internal-contracts.md) plus *proposed* formal OpenAPI: `contracts/openapi/internal.proposed.v1.yaml`.
+10. [Internal HTTP contracts](10-internal-contracts.md) plus the accepted formal OpenAPI (historical filename): `contracts/openapi/internal.proposed.v1.yaml`.
 11. [Test matrix, reliability and definition of done](11-testing-and-acceptance.md).
 12. [Changes requiring approval](12-contract-gaps-and-decisions.md).
 
@@ -49,8 +49,8 @@ See task ledger `tasks/MASTER_BACKLOG.md`, `tasks/task-index.yaml`, 44 individua
 ## Source-of-truth and contract freeze
 
 - **FROZEN:** `contracts/schemas/*.v1.schema.json`, `contracts/openapi/gateway.v1.yaml`, `contracts/event-routing.yaml` and exact examples. Do not silently change these because prose in this implementation design is more detailed.
-- **PROPOSED, NEEDS SIGNOFF:** `contracts/openapi/internal.proposed.v1.yaml`; additive public APIs for history/notifications/action packages in `contracts/openapi/gateway.extensions.proposed.v1.yaml`, documented in `12-contract-gaps-and-decisions.md`. Before implementation of these interfaces, file an interface change proposal and approve with Dev 1 and consumers.
-- **Internal request models:** Until a draft internal OpenAPI is approved, consumers use explicit mock adapters from `10-internal-contracts.md` and do not guess paths or payload shape.
+- **ACCEPTED:** `contracts/openapi/internal.proposed.v1.yaml` is the accepted internal API contract under ADR-0002, despite its historical filename. Additive public APIs for history/notifications/action packages in `contracts/openapi/gateway.extensions.proposed.v1.yaml` remain proposed and require approval.
+- **Internal request models:** Consumers use the accepted internal OpenAPI and explicit mock adapters from `10-internal-contracts.md`; do not guess paths or payload shape.
 - `GoalSpec` currently permits non-FI delivery countries but `Observation.v1` records only `delivery_to_fi`. **MVP product verification is restricted by business validation to `delivery_country=FI`** until a future compatible contract version adds multi-country delivery evidence.
 - `Observation.v1` requires a numeric unit price. Failed extractions/price-missing pages are logged as an `extraction_attempt` and **must not** be coerced into a fake Observation.
 - Goal amendment by user, pause/resume reconciliation and extended UI reads need explicit designs; see blocker list. Avoid fabricating new v1 event names.

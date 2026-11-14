@@ -1,9 +1,9 @@
 """Direct, typed persistence boundary; no other service database is accessed."""
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 import psycopg
 from psycopg.types.json import Jsonb
 
@@ -16,15 +16,31 @@ class GoalVersionRecord:
     spec: dict[str, Any]
     approved_at: datetime
     approved_draft_revision: int
+    correlation_id: UUID
 
 class GoalRepository:
+    OUTBOX_CLAIM_LEASE_SECONDS = 300
+
     def __init__(self, connection: psycopg.Connection[Any]) -> None:
         self._connection = connection
 
     def create_version_one(self, record: GoalVersionRecord) -> None:
+        event_id = uuid4()
+        event = {
+            "schema_version": 1,
+            "occurred_at": record.approved_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "producer": "goal-management",
+            "correlation_id": str(record.correlation_id),
+            "aggregate_id": str(record.goal_id),
+            "payload": {"goal_id": str(record.goal_id), "goal_version": record.version},
+        }
         with self._connection.transaction(), self._connection.cursor() as cursor:
             cursor.execute("INSERT INTO goals (goal_id, owner_user_id, lifecycle, current_version, confirmed_session_id) VALUES (%s,%s,'active',1,%s)", (record.goal_id, record.owner_user_id, record.confirmed_session_id))
             cursor.execute("INSERT INTO goal_versions (goal_id, version, spec, approved_at, approved_draft_revision) VALUES (%s,%s,%s,%s,%s)", (record.goal_id, record.version, Jsonb(record.spec), record.approved_at, record.approved_draft_revision))
+            cursor.execute(
+                "INSERT INTO outbox (id,event_id,event_type,payload_jsonb,status,next_attempt_at) VALUES (%s,%s,'goal.activated.v1',%s,'pending',now())",
+                (event_id, event_id, Jsonb(event)),
+            )
 
     def get_version(self, goal_id: UUID, version: int) -> dict[str, Any] | None:
         with self._connection.cursor() as cursor:
@@ -67,20 +83,53 @@ class GoalRepository:
             cur.execute("UPDATE goals SET lifecycle=%s,updated_at=now() WHERE goal_id=%s",(target,goal_id))
         return 'ok'
 
-    def inbox_seen(self,event_id:str)->bool:
-        with self._connection.cursor() as c: c.execute('SELECT 1 FROM inbox WHERE event_id=%s',(event_id,)); return c.fetchone() is not None
-    def mark_inbox(self,event_id:str,event_type:str)->None:
-        with self._connection.cursor() as c: c.execute('INSERT INTO inbox(event_id,event_type) VALUES(%s,%s) ON CONFLICT DO NOTHING',(event_id,event_type))
-    def current_version(self,goal_id:str)->int|None:
-        with self._connection.cursor() as c: c.execute('SELECT current_version FROM goals WHERE goal_id=%s',(goal_id,)); r=c.fetchone(); return None if r is None else r[0]
-    def update_projection(self,goal_id:str,version:int,evaluation_id:str,status:str)->None:
-        with self._connection.cursor() as c: c.execute("INSERT INTO goal_evaluation_projection(goal_id,version,evaluation_id,status,last_evaluated_at,opportunity_status) VALUES(%s,%s,%s,%s,now(),CASE WHEN %s='satisfied' THEN 'verified' ELSE 'unknown' END) ON CONFLICT(goal_id) DO UPDATE SET version=EXCLUDED.version,evaluation_id=EXCLUDED.evaluation_id,status=EXCLUDED.status,last_evaluated_at=EXCLUDED.last_evaluated_at,opportunity_status=EXCLUDED.opportunity_status,updated_at=now()",(goal_id,version,evaluation_id,status,status))
+    def process_evaluated(
+        self,
+        *,
+        event_id: str,
+        event_type: str,
+        goal_id: str,
+        goal_version: int,
+        evaluation_id: str,
+        status: str,
+    ) -> str:
+        """Deduplicate, gate, and project an evaluation in one DB transaction."""
+        with self._connection.transaction(), self._connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO inbox(event_id,event_type) VALUES(%s,%s) ON CONFLICT DO NOTHING RETURNING event_id",
+                (event_id, event_type),
+            )
+            if cursor.fetchone() is None:
+                return "duplicate"
+            cursor.execute(
+                "SELECT current_version,lifecycle FROM goals WHERE goal_id=%s FOR UPDATE",
+                (goal_id,),
+            )
+            runtime = cursor.fetchone()
+            if runtime is None or runtime[0] != goal_version:
+                return "stale"
+            if runtime[1] != "active":
+                return "inactive"
+            cursor.execute(
+                "INSERT INTO goal_evaluation_projection(goal_id,version,evaluation_id,status,last_evaluated_at,opportunity_status) "
+                "VALUES(%s,%s,%s,%s,now(),CASE WHEN %s='satisfied' THEN 'verified' ELSE 'unknown' END) "
+                "ON CONFLICT(goal_id) DO UPDATE SET version=EXCLUDED.version,evaluation_id=EXCLUDED.evaluation_id,"
+                "status=EXCLUDED.status,last_evaluated_at=EXCLUDED.last_evaluated_at,"
+                "opportunity_status=EXCLUDED.opportunity_status,updated_at=now()",
+                (goal_id, goal_version, evaluation_id, status, status),
+            )
+            return "projected"
     def claim_outbox(self)->list[dict[str,Any]]:
         with self._connection.transaction(),self._connection.cursor() as c:
+            c.execute(
+                "UPDATE outbox SET status='pending',claimed_at=NULL "
+                "WHERE status='publishing' AND claimed_at<=now()-(%s * INTERVAL '1 second')",
+                (self.OUTBOX_CLAIM_LEASE_SECONDS,),
+            )
             c.execute("SELECT event_id,event_type,payload_jsonb FROM outbox WHERE status='pending' AND next_attempt_at<=now() FOR UPDATE SKIP LOCKED")
-            rows=c.fetchall(); c.executemany("UPDATE outbox SET status='publishing',attempts=attempts+1 WHERE event_id=%s",[(r[0],) for r in rows])
+            rows=c.fetchall(); c.executemany("UPDATE outbox SET status='publishing',attempts=attempts+1,claimed_at=now() WHERE event_id=%s",[(r[0],) for r in rows])
         return [{'event_id':str(r[0]),'event_type':r[1],**r[2]} for r in rows]
     def mark_delivered(self,event_id:str)->None:
         with self._connection.cursor() as c: c.execute("UPDATE outbox SET status='delivered',delivered_at=now() WHERE event_id=%s",(event_id,))
     def mark_retry(self,event_id:str)->None:
-        with self._connection.cursor() as c: c.execute("UPDATE outbox SET status='pending',next_attempt_at=now()+interval '1 minute' WHERE event_id=%s",(event_id,))
+        with self._connection.cursor() as c: c.execute("UPDATE outbox SET status='pending',claimed_at=NULL,next_attempt_at=now()+interval '1 minute' WHERE event_id=%s",(event_id,))

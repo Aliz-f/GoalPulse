@@ -21,6 +21,8 @@ def test_invalid_expired_and_forged_tokens_are_rejected():
     claims={"iss":"goalpulse-dev","aud":"goalpulse-api","sub":SUBJECT,"token_kind":"user","exp":100}
     with pytest.raises(AuthenticationError): verifier().verify(token(claims),now=100)
     with pytest.raises(AuthenticationError): verifier().verify(token({**claims,"exp":200}) + "x",now=100)
+    malformed_signature = token({**claims, "exp": 200}).rsplit(".", 1)[0] + ".a"
+    with pytest.raises(AuthenticationError): verifier().verify(malformed_signature, now=100)
 def test_service_scope_and_correlation_id_are_strict():
     service=verifier("service").verify(token({"iss":"goalpulse-dev","aud":"goalpulse-api","sub":SUBJECT,"token_kind":"service","scope":"gm.read","exp":200}),now=100)
     require_service_scope(service,"gm.read")

@@ -64,7 +64,10 @@ class HS256TokenVerifier:
         if header.get("alg") != "HS256" or header.get("typ") != "JWT":
             raise AuthenticationError("unsupported token algorithm")
         expected = hmac.new(self._secret, f"{parts[0]}.{parts[1]}".encode(), hashlib.sha256).digest()
-        signature = base64.urlsafe_b64decode(parts[2] + "=" * (-len(parts[2]) % 4))
+        try:
+            signature = base64.urlsafe_b64decode(parts[2] + "=" * (-len(parts[2]) % 4))
+        except ValueError as exc:
+            raise AuthenticationError("malformed bearer signature") from exc
         if not hmac.compare_digest(expected, signature):
             raise AuthenticationError("invalid bearer signature")
         clock = int(time.time()) if now is None else now
