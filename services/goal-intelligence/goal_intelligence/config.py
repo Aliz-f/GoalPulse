@@ -42,6 +42,8 @@ class Settings:
     database_url: str = field(default_factory=lambda: _env("GI_DATABASE_URL"), repr=False)
     llm_provider: str = field(default_factory=lambda: _env("GI_LLM_PROVIDER"))
     llm_model: str = field(default_factory=lambda: _env("GI_LLM_MODEL"))
+    # Optional. Only for models that support the effort parameter (e.g. claude-haiku-5-5).
+    llm_effort: str = field(default_factory=lambda: _env("GI_LLM_EFFORT"))
     anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"), repr=False)
     llm_timeout_s: float = field(default_factory=lambda: float(os.environ.get("GI_LLM_TIMEOUT_S", "20")))
     llm_max_attempts: int = field(default_factory=lambda: int(os.environ.get("GI_LLM_MAX_ATTEMPTS", "3")))
@@ -66,6 +68,8 @@ def validate_settings(settings: Settings) -> None:
             problems.append("GI_LLM_MODEL is required for the anthropic provider (use a model your account can access)")
         if not settings.anthropic_api_key:
             problems.append("ANTHROPIC_API_KEY is required for the anthropic provider")
+    if settings.llm_effort and settings.llm_effort not in ("low", "medium", "high"):
+        problems.append("GI_LLM_EFFORT must be low, medium or high when set")
     if not 1 <= settings.llm_max_attempts <= 5:
         problems.append("GI_LLM_MAX_ATTEMPTS must be between 1 and 5")
     if not 1 <= settings.llm_timeout_s <= 120:
@@ -99,7 +103,7 @@ def build_extractor(settings: Settings) -> ResilientExtractor:
     if settings.llm_provider == "anthropic":
         from .llm.anthropic import AnthropicExtractor
 
-        inner = AnthropicExtractor(settings.anthropic_api_key, settings.llm_model)
+        inner = AnthropicExtractor(settings.anthropic_api_key, settings.llm_model, effort=settings.llm_effort or None)
     else:  # validated: fixture, and only outside the demo profile
         inner = FixtureExtractor()
     return ResilientExtractor(

@@ -51,6 +51,7 @@ uvicorn goal_intelligence.api.app:create_app --factory --port 8102
 | `SERVICE_JWT_SECRET` / `SERVICE_JWT_ISSUER` / `SERVICE_JWT_AUDIENCE` | — (required) | Accepted ICP-08 service-JWT verifier configuration; shared with the local D1 issuer |
 | `GI_LLM_PROVIDER` | — (required) | `anthropic`, or `fixture` in `test`/`dev` only. No automatic fallback between them |
 | `GI_LLM_MODEL` | — (required for anthropic) | A model your Anthropic account is entitled to; no hard-coded default |
+| `GI_LLM_EFFORT` | unset | Optional `low`/`medium`/`high`, sent as `output_config.effort`. Only for models that support effort (e.g. `claude-haiku-5-5`; recommended `low` for extraction). Leave unset for older models. |
 | `ANTHROPIC_API_KEY` | — (required for anthropic) | Server-side secret; never logged |
 | `GI_LLM_TIMEOUT_S` / `GI_LLM_MAX_ATTEMPTS` | `20` / `3` | per-attempt timeout (1–120 s), bounded retries (1–5) with exponential backoff |
 | `GI_MAX_MESSAGE_CHARS` / `GI_MAX_USER_TURNS` | `2000` / `20` | input and conversation bounds |
