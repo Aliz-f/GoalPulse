@@ -1,0 +1,386 @@
+{
+  "baseline_commit": "5186edf",
+  "status": "decided_task_plan_not_implemented",
+  "adr": "docs/adr/0003-phase2-mvp-decisions.md",
+  "tasks": [
+    {
+      "id": "R2-D1-00",
+      "owner": "D1",
+      "priority": "P0",
+      "gate": "R0",
+      "title": "Apply decided MVP policies and additive contract PR",
+      "deps": [],
+      "paths": [
+        "docs/adr/",
+        "docs/implementation/DECISIONS.md",
+        "contracts/",
+        "AGENTS.md"
+      ],
+      "work": [
+        "Import ADR-0003; reconcile against accepted ADR-0002 and current code on actual branch. Record all MVP/ICP decisions in repo decision log; freeze v1 files.",
+        "Publish additive read contracts for evaluations/notifications and isolated versioned demo session; treat grouped seller_orders ActionPackage as P1 and derive shape from existing D4 code.",
+        "Add AGENTS.md Phase-2 addendum and contract tests; do not silently edit any existing accepted v1 route or Event name."
+      ],
+      "accept": [
+        "ADR and decision log merged, with no modifications to frozen v1; new extensions have ownership/auth and strict schemas.",
+        "One tested owner-to-owner denial; D2 and D4 get URL/DTO handoff; no direct public internal service route.",
+        "Existing 5 schemas/4 events/7 frozen Gateway paths still validate."
+      ],
+      "hint": "Coordinate shared files; others never edit them before this PR."
+    },
+    {
+      "id": "R2-D1-01",
+      "owner": "D1",
+      "priority": "P0",
+      "gate": "R1",
+      "title": "Runnable Gateway, demo authentication and Compose stack",
+      "deps": [
+        "R2-D1-00"
+      ],
+      "paths": [
+        "infrastructure/gateway/",
+        "infrastructure/docker-compose.yml",
+        "infrastructure/",
+        "docs/phase2/"
+      ],
+      "work": [
+        "Implement all seven frozen public paths on Gateway with error/status preservation and accepted ICP-08 service JWTs.",
+        "Build isolated demo auth endpoint from versioned extension, two preprovisioned users, short-lived HttpOnly cookie; reject missing config and keep services private.",
+        "Add production app/worker runtime commands or Dockerfiles for all P0 services; Agent Integration starts when P1 is enabled (with owners verifying packages), per-service migrations, readiness, health, env fail-closed checks.",
+        "Apply request size/time limits, CORS scope, safe secret handling; add single documented startup command."
+      ],
+      "accept": [
+        "One documented command boots disposable DB/Rabbit, Gateway, P0 service runtimes and workers; optional P1 AI when enabled; readiness green, no direct public service endpoints.",
+        "All 7 frozen Gateway routes are wired and tested with fake downstream; two-user cross-owner denial and unauthenticated access fail.",
+        "Demo refuses FE mock/GI fixture/DE fixture config and missing secrets; no token paste."
+      ],
+      "hint": "Publish Gateway and auth integration contract for D2 within first PR; make other developers own their runtime builder implementation when necessary."
+    },
+    {
+      "id": "R2-D1-02",
+      "owner": "D1",
+      "priority": "P0",
+      "gate": "R1",
+      "title": "Goal Management production runtime and truthful projection",
+      "deps": [
+        "R2-D1-01"
+      ],
+      "paths": [
+        "services/goal-management/"
+      ],
+      "work": [
+        "Bind existing injected repository, GI candidate reader, outbox publisher and GE evaluated consumer to a runnable process.",
+        "Complete idempotent goal activation, DB migration and /ready; read current goal-version evaluation projection in list/detail instead of hard-coded not_found.",
+        "Publish exact owner/goal current-version read for D3/D4; wire service identity and retries."
+      ],
+      "accept": [
+        "GI exact ready revision confirmation persists through restart and emits activation once under replay.",
+        "Goal list/detail shows the actual current evaluation result after GE event, and ignores stale version events.",
+        "Cross-owner reads/confirmation fail and tests prove immutable versions."
+      ],
+      "hint": "No new GoalSpec fields or v1 events."
+    },
+    {
+      "id": "R2-D1-03",
+      "owner": "D1",
+      "priority": "P0",
+      "gate": "R3/R4",
+      "title": "Full-stack integration, outages, security and release evidence",
+      "deps": [
+        "R2-D1-02",
+        "R2-D2-01",
+        "R2-D2-02",
+        "R2-D2-04",
+        "R2-D3-01",
+        "R2-D3-02",
+        "R2-D3-03",
+        "R2-D4-01",
+        "R2-D4-02"
+      ],
+      "paths": [
+        "infrastructure/",
+        "tests/",
+        "docs/phase2/",
+        ".github/workflows/"
+      ],
+      "work": [
+        "Connect recorded-provider E2E Browser→GI→GM→Rabbit→DM→DE→GE→NS with isolated DBs.",
+        "Test duplicate messages, stale versions, pause, Rabbit worker/DB restart, provider 429/5xx, DLQ/retry and cross-owner access.",
+        "Create redacted release report with actual commands, current commit, PASS/FAIL/NOT RUN; run separately authorized live Anthropic + Context main-flow smoke."
+      ],
+      "accept": [
+        "All P0 release scenarios A1–D5 pass or release is marked blocked with exact reproducible exceptions.",
+        "One no-silent-mock deployment test and one live safe main-path proof; no fabricated Verified.",
+        "No checkout/payment/booking calls, no secrets/raw goals in diagnostic artifacts."
+      ],
+      "hint": "Integration owner; do not silently fix cross-owner source code; send scoped tickets."
+    },
+    {
+      "id": "R2-D2-03",
+      "owner": "D2",
+      "priority": "P0",
+      "gate": "R0",
+      "title": "Fix Node 22 frontend build and Playwright startup",
+      "deps": [],
+      "paths": [
+        "frontend/"
+      ],
+      "work": [
+        "Reproduce Next.js TypeScript --showConfig parsing error on Node 22; fix root cause without skipping TypeScript validation.",
+        "Fix Playwright webServer startup and ensure mock lane stays explicitly labeled.",
+        "Make CI fail if `npm run build` or Playwright fails."
+      ],
+      "accept": [
+        "Under Node 22: npm ci, typecheck, lint, test, build, e2e all exit 0.",
+        "No deletion or skipping of failed tests; FE production build can select real Gateway."
+      ],
+      "hint": "Independent immediate task."
+    },
+    {
+      "id": "R2-D2-01",
+      "owner": "D2",
+      "priority": "P0",
+      "gate": "R1",
+      "title": "Real Anthropic LLM and safe fail-closed Goal Intelligence",
+      "deps": [
+        "R2-D1-00"
+      ],
+      "paths": [
+        "services/goal-intelligence/"
+      ],
+      "work": [
+        "Reuse existing `llm/anthropic.py` and injection interface; select GI_LLM_PROVIDER=anthropic in demo, model from actual API entitlement; keep fixture only in explicit test/dev.",
+        "Validate model JSON into GoalDraft/revision; dynamic questions from user input, strict missing fields; never auto-activate.",
+        "Visible provider failure, timeouts, bounded retries/rate and privacy disclosure; reconcile extractor-failure revision semantics with docs."
+      ],
+      "accept": [
+        "Controlled single non-sensitive live API call yields a distinct dynamic clarifying question and valid Draft; replaying different goal changes question.",
+        "Demo refuses fixture, missing Anthropic key/model; timeout/malformed output cannot confirm or silently invoke fake provider.",
+        "GI Python3.12 tests and injection/ownership tests pass; no secrets/private goal text logged."
+      ],
+      "hint": "D1 Gateway not needed for standalone provider smoke; coordinate config but keep service ownership."
+    },
+    {
+      "id": "R2-D2-02",
+      "owner": "D2",
+      "priority": "P0",
+      "gate": "R1/R2",
+      "title": "Real browser Gateway client and session handling",
+      "deps": [
+        "R2-D1-01",
+        "R2-D2-03"
+      ],
+      "paths": [
+        "frontend/"
+      ],
+      "work": [
+        "Make `gateway` mode required in demo build; unknown/missing mode must fail instead of loading in-memory mock.",
+        "Use D1 cookie auth/session API; remove pasted JWT from real sessionStorage path; no public credential in Next bundle.",
+        "Connect Draft, confirm, goal list/detail and pause UI to real Gateway with typed DTOs and proper 401/404/409/retry states."
+      ],
+      "accept": [
+        "Browser to authenticated Gateway displays persistent goal after refresh/restart; no fake sample card appears.",
+        "Two-user isolation demonstrated; production/demo build cannot default to mock or fixture.",
+        "No new unsupported UI public endpoint; request/response shapes match approved contract."
+      ],
+      "hint": "User-facing entry point; never call Anthropic/Context from browser."
+    },
+    {
+      "id": "R2-D2-04",
+      "owner": "D2",
+      "priority": "P0",
+      "gate": "R3",
+      "title": "Truthful My Goals and notification views",
+      "deps": [
+        "R2-D2-02",
+        "R2-D4-02"
+      ],
+      "paths": [
+        "frontend/"
+      ],
+      "work": [
+        "Render actual GE results and condition-level unknown/missing reasons from current-version read, including source and observed_at.",
+        "Implement owner-only notification listing/read with approved additive API; show distinct Candidate vs Verified and active vs completed.",
+        "Show last attempted/successful check and quota/cost caveat; no fake fulfillment percentage or fabricated global coverage."
+      ],
+      "accept": [
+        "Recorded unknown status renders Unknown and source/timestamp, not Verified; verified scenario renders one notification.",
+        "After browser restart still displays stored data; no mock path or seed data in demo.",
+        "Auth errors, empty state, provider unavailable and cross-owner denial handled."
+      ],
+      "hint": "If package P1 unavailable, hide button rather than display fake package."
+    },
+    {
+      "id": "R2-D3-02",
+      "owner": "D3",
+      "priority": "P0",
+      "gate": "R0/R1",
+      "title": "Implement internal `checked` evidence policy (ICP-09)",
+      "deps": [
+        "R2-D1-00"
+      ],
+      "paths": [
+        "services/data-evidence/"
+      ],
+      "work": [
+        "Keep HTTP-submitted observations unverified; introduce internal checker that checks HTTPS first-party merchant, exact model, price/EUR cents, timestamp/cache, stock/condition and deterministic cross-check against seller source representation; never accept caller asserted checked.",
+        "Store immutable audit trail for decisions and conflicts; support disputed/unverified; keep missing shipping/tax unknown for GE separately.",
+        "Validate first-party, freshness, contradictory, stale, forged checked and replay scenarios; D4 agrees only on semantics, not weaker GE logic."
+      ],
+      "accept": [
+        "Fresh first-party independently cross-checked recorded observation may become checked through internal-only decision, with verifiable provenance; ordinary single assertion remains unverified.",
+        "Tampered/caller checked/replayed/stale/conflicting observations never promote; conflict disputed and timestamps/audit trail intact.",
+        "GE still blocks missing FI shipping, stock or tax; no unapproved v1 schema edit."
+      ],
+      "hint": "`checked` means validated evidence at time of scrape, not guaranteed checkout or independent merchant source."
+    },
+    {
+      "id": "R2-D3-01",
+      "owner": "D3",
+      "priority": "P0",
+      "gate": "R1/R2",
+      "title": "Wire real Context.dev activation→Evidence production pipeline",
+      "deps": [
+        "R2-D1-00"
+      ],
+      "paths": [
+        "services/discovery-monitoring/",
+        "services/data-evidence/"
+      ],
+      "work": [
+        "Instantiate existing ContextProvider in main DM app/worker, never probe-only. Implement authenticated GM GoalReader and DE EvidenceSink, Rabbit activated consumer and safe source discovery.",
+        "Map Context search/scrape responses into exact ExtractionSubmission with provider cache/request timestamps; preserve unknown values; accept extraction failures durably.",
+        "Add app factory, job idempotency, bounded retry/quotas and readiness; reject fixture provenance in demo."
+      ],
+      "accept": [
+        "Recorded HTTP response activation→DM job→DE immutable Observation/failure works end-to-end without test-only direct invocation; duplicate activation does not double-submit.",
+        "A controlled actual Context.dev call via main activation path persists real source/request/time and GE sees resulting evidence.",
+        "Missing shipping/tax/availability stays unknown; SSRF/private targets denied, no provider key logged."
+      ],
+      "hint": "D1 supplies actual GM service URL and IPC; build against accepted internal API while D1 finishes runtime."
+    },
+    {
+      "id": "R2-D3-03",
+      "owner": "D3",
+      "priority": "P0",
+      "gate": "R3",
+      "title": "Periodic scans, operator check-now and cost guard",
+      "deps": [
+        "R2-D3-01"
+      ],
+      "paths": [
+        "services/discovery-monitoring/"
+      ],
+      "work": [
+        "Build durable due-job scheduler from existing DM job/source state; initial Search/Scrape on activation and at user-confirmed interval (default 60 minutes, minimum 30).",
+        "Expose operator-only local check-now CLI/internal admin command using identical job logic; no new public v1 API.",
+        "Enforce 2 active goals per user, 3 seller URLs per goal, 100 Context calls per user/day, job dedup and skip paused/stale versions."
+      ],
+      "accept": [
+        "Clock-controlled test proves first scan and second due scan, survives worker restart without double scan.",
+        "Rate budget/quota stops excess work with visible reason; operator check-now works only with privileged local identity.",
+        "No public unauthenticated webhook; native Context monitors are deferred P1."
+      ],
+      "hint": "If user requests <30-min cadence, clarify/obtain confirmation of supported interval; never silently schedule slower."
+    },
+    {
+      "id": "R2-D4-01",
+      "owner": "D4",
+      "priority": "P0",
+      "gate": "R1/R2",
+      "title": "Runnable GE worker, real readers, exact current-version evaluation API",
+      "deps": [
+        "R2-D1-00",
+        "R2-D3-02"
+      ],
+      "paths": [
+        "services/goal-evaluation/"
+      ],
+      "work": [
+        "Bind authenticated GM current GoalSpec, DM goal subscriptions and DE Observation readers; implement accepted internal GE GET and readiness.",
+        "Connect Rabbit evidence.updated consumer to inbox/outbox + transactional evaluator, publisher confirm/manual ACK/DLQ.",
+        "Keep all tri-state constraints, fresh checked proof, goal version, pause and owner guards; fingerprint harmonizes with ADR-0003."
+      ],
+      "accept": [
+        "Broker+DB test from recorded EvidenceUpdated stores evaluation, goal.evaluated.v1 once, verified only when fully checked and all constraints pass.",
+        "Unknown shipping/tax/stock and stale/wrong goal version do not verify; duplicate delivery/restart yields one outcome.",
+        "Authenticated internal API returns exact saved evaluation; no invented event names."
+      ],
+      "hint": "Can build clients using recorded fakes before D1/D3 runtime is ready."
+    },
+    {
+      "id": "R2-D4-02",
+      "owner": "D4",
+      "priority": "P0",
+      "gate": "R3",
+      "title": "Real in-app notification worker, API and business dedup",
+      "deps": [
+        "R2-D4-01",
+        "R2-D1-00"
+      ],
+      "paths": [
+        "services/notification/"
+      ],
+      "work": [
+        "Run Rabbit consumer on goal.opportunity_verified.v1, authenticated current-goal/GE readers and owned persisted DB.",
+        "Generate stable fingerprint excluding event/observation IDs/timestamps, applied uniqueness + per-goal rate cap.",
+        "Expose versioned owner-only list/mark read via D1-approved public extension with Gateway; no emails/phone integrations required."
+      ],
+      "accept": [
+        "Recorded checked verified event creates exactly one in-app notification; duplicate same business offer after rescrape sends none.",
+        "Paused/stale/unverified opportunity never creates positive alert; two users cannot read each other’s notifications.",
+        "Restart preserves notification and read state; no misleading purchase-success claim."
+      ],
+      "hint": "D2 handles UI; D1 handles extension Gateway routing."
+    },
+    {
+      "id": "R2-D4-03",
+      "owner": "D4",
+      "priority": "P1",
+      "gate": "R3/R4",
+      "title": "Wire read-only Agent Integration and grouped seller_orders DTO",
+      "deps": [
+        "R2-D4-01",
+        "R2-D1-00"
+      ],
+      "paths": [
+        "services/agent-integration/"
+      ],
+      "work": [
+        "Use service-local existing grouped seller_orders schema as source and publish matching versioned public extension via D1 contract PR.",
+        "Run verified event worker, read current verified evidence from internal API, create owner-only immutable package with expiry and checkout revalidation.",
+        "Never automatically order/pay; include owner approval required and auto_execute false; block stale/disputed/unsafe links."
+      ],
+      "accept": [
+        "Schema validation at Gateway and client passes without seller_offers field; replay builds one package.",
+        "Other user cannot read; expired package unusable; checkout revalidation flagged."
+      ],
+      "hint": "P1 only after real Goal path and Notification are stable."
+    },
+    {
+      "id": "R2-D4-04",
+      "owner": "D4",
+      "priority": "P1",
+      "gate": "R4+",
+      "title": "Real recurring café procurement normalization and solver",
+      "deps": [
+        "R2-D4-01",
+        "R2-D3-01",
+        "R2-D3-02"
+      ],
+      "paths": [
+        "services/goal-evaluation/"
+      ],
+      "work": [
+        "Verify per-item units, quantities, explicit quality equivalence and EUR costs from DE, including tax and seller shipping once.",
+        "Use existing recurring solver with real normalized Evidence; expose correct missing/unknown coverage.",
+        "No arbitrary substitute product or silent unit conversion and no fictitious savings percentage."
+      ],
+      "accept": [
+        "Recorded kg/L/pcs multi-seller test computes correct total incl shipping once per seller and taxes.",
+        "Any missing item/shipping/tax/quality evidence yields unknown, not verified."
+      ],
+      "hint": "Only do after P0 end-to-end live goal is stable."
+    }
+  ]
+}

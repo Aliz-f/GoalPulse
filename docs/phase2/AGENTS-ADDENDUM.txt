@@ -1,0 +1,10 @@
+## Phase 2 MVP guardrails (additive; see ADR-0003)
+
+- In Phase 2, also read `docs/adr/0003-phase2-mvp-decisions.md`, `docs/phase2/ARCHITECTURE.md`, `docs/phase2/CONTRACT-CHANGE-PLAN.md`, `tasks/phase2/MASTER-BACKLOG.md` and your assigned ticket before edits.
+- Product owner selected MVP-01..MVP-20 defaults. They become repo-approved when D1 merges ADR + decisions and compatible versioned contract extensions. Do not bypass existing frozen v1 or accepted ADRs.
+- Implement only assigned task within owned paths. Stop and report actual source conflicts / security blockers; never silently choose new APIs or weaken provenance/auth.
+- `demo` and non-test runtime MUST NOT route frontend to mock, GI to fixture, or DE to fixture. Unit/CI may use explicit fixture. Provider failure is visible, never secretly replaced.
+- `checked` is determined by DE internal verification per ADR, never imported from Context.dev or external caller; GE remains tri-state.
+- No external purchase/payment/booking, no direct browser calls to LLM/Context.dev, no exposed internal service APIs.
+- Do not change v1 schemas/events in place. Add versioned extensions only under D1-owned coordinated PR.
+- Provide per-task evidence-based PASS/FAIL/NOT RUN report and redacted smoke logs.

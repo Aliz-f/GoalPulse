@@ -1,0 +1,383 @@
+{
+  "git_commit": "5186edf",
+  "branch": "main",
+  "audited_at": "2026-11-14",
+  "overall_status": "BLOCKED",
+  "live_llm_status": "IMPLEMENTED_NOT_DEFAULT_NOT_LIVE_VERIFIED",
+  "live_context_dev_status": "REAL_ADAPTER_PROBE_ONLY_MAIN_PATH_UNWIRED_NOT_RUN",
+  "mock_e2e_status": "PARTIAL_FRONTEND_UNIT_PASS_PLAYWRIGHT_START_FAILED",
+  "live_e2e_status": "BLOCKED",
+  "services": {
+    "goal-intelligence": {
+      "status": "PARTIAL",
+      "real_or_mock": "MIXED_DEFAULT_FIXTURE",
+      "evidence_paths": [
+        "services/goal-intelligence/goal_intelligence/config.py:15-52",
+        "services/goal-intelligence/goal_intelligence/llm/anthropic.py:1-133",
+        "services/goal-intelligence/goal_intelligence/api/app.py:106-139"
+      ],
+      "top_gap": "The real Anthropic adapter is not the default, was not live-tested, and cannot be reached through a working Gateway/browser path."
+    },
+    "goal-management": {
+      "status": "PARTIAL",
+      "real_or_mock": "REAL_CORE_UNWIRED_RUNTIME",
+      "evidence_paths": [
+        "services/goal-management/src/goal_management/api.py:179-308",
+        "services/goal-management/src/goal_management/repository.py:27-43",
+        "services/goal-management/src/goal_management/repository.py:64-121"
+      ],
+      "top_gap": "No production app builder binds persistence, clients, and workers; goal-list opportunity status is hard-coded."
+    },
+    "discovery-monitoring": {
+      "status": "PARTIAL",
+      "real_or_mock": "REAL_PROVIDER_ADAPTER_UNWIRED",
+      "evidence_paths": [
+        "services/discovery-monitoring/goalpulse_discovery/context_provider.py:60-311",
+        "services/discovery-monitoring/goalpulse_discovery/workflow.py:30-137",
+        "services/discovery-monitoring/goalpulse_discovery/probe.py:33-60"
+      ],
+      "top_gap": "The Context.dev adapter is instantiated only by a separate probe; no production activation consumer, GoalReader, EvidenceSink, scheduler, or webhook ingress is bound."
+    },
+    "data-evidence": {
+      "status": "PARTIAL",
+      "real_or_mock": "REAL_CORE_TRUST_PATH_BLOCKED",
+      "evidence_paths": [
+        "services/data-evidence/goalpulse_evidence/api.py:28-149",
+        "services/data-evidence/goalpulse_evidence/ledger.py:114-124",
+        "services/data-evidence/goalpulse_evidence/ledger.py:217-263"
+      ],
+      "top_gap": "All non-disputed HTTP submissions are downgraded to unverified, so downstream checked-evidence gates cannot pass."
+    },
+    "goal-evaluation": {
+      "status": "PARTIAL",
+      "real_or_mock": "REAL_DETERMINISTIC_CORE_WITH_INJECTED_ADAPTERS",
+      "evidence_paths": [
+        "services/goal-evaluation/goal_evaluation/processing.py:1-201",
+        "services/goal-evaluation/goal_evaluation/consumer.py:20-88",
+        "services/goal-evaluation/goal_evaluation/evaluators/product.py:124-192"
+      ],
+      "top_gap": "No concrete authenticated readers, accepted evaluation HTTP route, or RabbitMQ worker process."
+    },
+    "notification": {
+      "status": "BLOCKED",
+      "real_or_mock": "REAL_LOCAL_CORE_UNWIRED",
+      "evidence_paths": [
+        "services/notification/README.md:3-13",
+        "services/notification/notification/consumer.py:39-199",
+        "services/notification/notification/reads.py"
+      ],
+      "top_gap": "No concrete upstream clients, broker process, or approved owner-facing read API."
+    },
+    "agent-integration": {
+      "status": "BLOCKED",
+      "real_or_mock": "REAL_LOCAL_CORE_UNWIRED_UNAPPROVED_DTO",
+      "evidence_paths": [
+        "services/agent-integration/README.md:3-15",
+        "services/agent-integration/agent_integration/service.py:49-179",
+        "services/agent-integration/schemas/action-package.v1.schema.json:43-161"
+      ],
+      "top_gap": "No broker/read API runtime, and local seller_orders differs from the unapproved seller_offers proposal."
+    },
+    "gateway": {
+      "status": "BLOCKED",
+      "real_or_mock": "STUB",
+      "evidence_paths": [
+        "infrastructure/gateway/goalpulse_gateway/app.py:1-36",
+        "infrastructure/gateway/goalpulse_gateway/auth.py:44-103",
+        "contracts/openapi/gateway.v1.yaml:1-156"
+      ],
+      "top_gap": "Only /health/live exists; none of the seven frozen public paths or service-claim forwarding is implemented."
+    },
+    "frontend": {
+      "status": "MOCK_ONLY",
+      "real_or_mock": "MOCK_DEFAULT_WITH_UNUSED_GATEWAY_CLIENT",
+      "evidence_paths": [
+        "frontend/src/lib/api/index.ts:7-17",
+        "frontend/src/lib/api/mock.ts:8-275",
+        "frontend/src/lib/api/gateway.ts:24-87",
+        "frontend/src/lib/api/proposed.ts:4-11"
+      ],
+      "top_gap": "The production bundle defaults to in-memory mock mode, proposed reads are mock-only, and the local build/E2E commands failed."
+    }
+  },
+  "p0_blockers": [
+    {
+      "id": "P0-1",
+      "title": "Gateway and executable application stack absent",
+      "evidence": [
+        "infrastructure/gateway/goalpulse_gateway/app.py:1-36",
+        "infrastructure/docker-compose.yml:1-60"
+      ]
+    },
+    {
+      "id": "P0-2",
+      "title": "Cross-service workers and authenticated runtime adapters incomplete",
+      "evidence": [
+        "services/discovery-monitoring/goalpulse_discovery/workflow.py:30-39",
+        "services/goal-evaluation/goal_evaluation/processing.py:1-69",
+        "services/notification/notification/consumer.py:39-49"
+      ]
+    },
+    {
+      "id": "P0-3",
+      "title": "Evidence path cannot produce checked reliability",
+      "evidence": [
+        "services/data-evidence/goalpulse_evidence/api.py:28,119-125",
+        "services/goal-evaluation/goal_evaluation/evaluators/product.py:160-173"
+      ]
+    },
+    {
+      "id": "P0-4",
+      "title": "Real Context.dev adapter is not bound to the user workflow",
+      "evidence": [
+        "services/discovery-monitoring/goalpulse_discovery/probe.py:33-60",
+        "services/discovery-monitoring/goalpulse_discovery/workflow.py:30-137"
+      ]
+    },
+    {
+      "id": "P0-5",
+      "title": "Browser remains mock-first and real frontend path is not green",
+      "evidence": [
+        "frontend/src/lib/api/index.ts:7-17",
+        "frontend/src/lib/api/proposed.ts:4-11",
+        "frontend/playwright.config.ts:33-39"
+      ]
+    }
+  ],
+  "proposed_tasks": [
+    {
+      "id": "R2-D1-01",
+      "owner": "D1",
+      "priority": "P0",
+      "deps": ["ICP-01 accepted", "ICP-08 accepted", "identity configuration decision"],
+      "acceptance": "One documented command starts the isolated stack; authenticated tests cover all seven frozen public routes; cross-owner and unauthenticated requests fail; services are not directly public.",
+      "paths": ["infrastructure/gateway/", "infrastructure/docker-compose.yml", "service runtime packaging"],
+      "contract_change_required": false
+    },
+    {
+      "id": "R2-D1-02",
+      "owner": "D1",
+      "priority": "P0",
+      "deps": ["R2-D1-01"],
+      "acceptance": "Restart preserves a confirmed goal, activation publishes once under replay, and goal list/detail use the current-version evaluation projection.",
+      "paths": ["services/goal-management/"],
+      "contract_change_required": false
+    },
+    {
+      "id": "R2-D3-01",
+      "owner": "D3",
+      "priority": "P0",
+      "deps": ["R2-D1-01", "R2-D1-02", "approved Context.dev account", "ICP-04/06/11/12 decisions as needed"],
+      "acceptance": "A recorded-provider integration test proves one initial search/scrape and extraction request; duplicate activation and restart do not duplicate work; controlled live smoke preserves request and freshness metadata; demo/prod rejects fixture provenance.",
+      "paths": ["services/discovery-monitoring/", "services/data-evidence/ client boundary"],
+      "contract_change_required": false
+    },
+    {
+      "id": "R2-D3-02",
+      "owner": "D3 with D1/D4 approval",
+      "priority": "P0",
+      "deps": ["ICP-09 approval", "evidence threat model"],
+      "acceptance": "Corroborated fixtures become checked; single, ambiguous, or stale sources remain unverified; conflicts become disputed; provenance and EUR-cent invariants validate.",
+      "paths": ["services/data-evidence/", "docs/implementation/DECISIONS.md", "docs/adr/ after approval"],
+      "contract_change_required": true
+    },
+    {
+      "id": "R2-D4-01",
+      "owner": "D4",
+      "priority": "P0",
+      "deps": ["R2-D1-01", "R2-D1-02", "R2-D3-02"],
+      "acceptance": "Broker integration evaluates only the active version, emits once, preserves unknown for missing facts, survives duplicate/restart, and exposes the accepted evaluation read.",
+      "paths": ["services/goal-evaluation/"],
+      "contract_change_required": false
+    },
+    {
+      "id": "R2-D2-01",
+      "owner": "D2",
+      "priority": "P0",
+      "deps": ["approved LLM provider/model/privacy policy", "R2-D1-01"],
+      "acceptance": "Demo/prod startup rejects fixture mode; a controlled smoke returns a valid dynamic draft; timeout or malformed output cannot confirm a goal or switch to fixture.",
+      "paths": ["services/goal-intelligence/"],
+      "contract_change_required": false
+    },
+    {
+      "id": "R2-D2-02",
+      "owner": "D2 with D1",
+      "priority": "P0",
+      "deps": ["R2-D1-01", "identity decision", "ICP-02 for proposed screens"],
+      "acceptance": "Production build requires gateway/auth configuration, passes cross-owner browser/API tests, and visibly identifies any explicit mock build.",
+      "paths": ["frontend/", "infrastructure/gateway/ auth integration"],
+      "contract_change_required": true
+    },
+    {
+      "id": "R2-D2-03",
+      "owner": "D2",
+      "priority": "P0",
+      "deps": [],
+      "acceptance": "On documented Node 22, npm ci, typecheck, lint, unit tests, build, and Playwright all exit zero.",
+      "paths": ["frontend/package.json", "frontend TypeScript/Next config", "frontend/playwright.config.ts", "frontend tests"],
+      "contract_change_required": false
+    },
+    {
+      "id": "R2-D4-02",
+      "owner": "D4",
+      "priority": "P1",
+      "deps": ["R2-D4-01", "R2-D1-01", "ICP-02", "ICP-10"],
+      "acceptance": "Replay produces one owner notification; stale or unchecked opportunities produce none; cross-owner reads fail; restart preserves state.",
+      "paths": ["services/notification/", "Gateway/frontend after approval"],
+      "contract_change_required": true
+    },
+    {
+      "id": "R2-D4-03",
+      "owner": "D4",
+      "priority": "P1",
+      "deps": ["R2-D4-01", "ICP-02", "ICP-10"],
+      "acceptance": "Replay creates one current owner package; expired, stale, unsafe, or unchecked evidence blocks use; auto_execute remains false; approved schema validates at the Gateway.",
+      "paths": ["services/agent-integration/", "approved OpenAPI/contract extension"],
+      "contract_change_required": true
+    },
+    {
+      "id": "R2-D4-04",
+      "owner": "D4 with D3",
+      "priority": "P1",
+      "deps": ["R2-D3-01", "R2-D3-02", "R2-D4-01", "ICP-04", "ICP-06"],
+      "acceptance": "Deterministic kg/L/pcs evidence yields correct basket totals including one shipping charge per seller and tax; any unknown item, shipping, tax, or quality blocks verification.",
+      "paths": ["services/goal-evaluation/", "D3 normalization paths"],
+      "contract_change_required": true
+    },
+    {
+      "id": "R2-D1-03",
+      "owner": "D1 coordinating D2-D4",
+      "priority": "P0",
+      "deps": ["All P0 service runtimes"],
+      "acceptance": "Recorded-provider scenarios A-D pass across broker/service/DB restarts with exactly-once business outcomes under duplicate delivery, redacted diagnostics, and no fake success.",
+      "paths": ["infrastructure/", "integration tests", ".github/workflows/"],
+      "contract_change_required": false
+    }
+  ],
+  "tests_run": [
+    {
+      "command": "python scripts/validate_contracts.py",
+      "exit_status": 0,
+      "summary": "Validated 13 examples, five schemas, four event routes, and seven OpenAPI paths with external/provider environment variables unset."
+    },
+    {
+      "command": "python -m pytest -q -rs",
+      "exit_status": 2,
+      "summary": "Collection stopped because the available Python was 3.11.5 and Goal Intelligence requires 3.12+."
+    },
+    {
+      "command": "python -m pytest -q -rs tests infrastructure/tests infrastructure/gateway/tests services/goal-management/tests services/discovery-monitoring/tests services/data-evidence/tests services/goal-evaluation/tests services/notification/tests services/agent-integration/tests",
+      "exit_status": 0,
+      "summary": "717 passed and seven PostgreSQL tests skipped because DM/DE test DSNs were intentionally unset."
+    },
+    {
+      "command": "npm test",
+      "cwd": "frontend",
+      "exit_status": 0,
+      "summary": "Five frontend test files passed."
+    },
+    {
+      "command": "npm run typecheck",
+      "cwd": "frontend",
+      "exit_status": 0,
+      "summary": "Passed."
+    },
+    {
+      "command": "npm run lint",
+      "cwd": "frontend",
+      "exit_status": 0,
+      "summary": "Passed."
+    },
+    {
+      "command": "npm run build",
+      "cwd": "frontend",
+      "exit_status": 1,
+      "summary": "Compilation completed, then Next failed to parse TypeScript --showConfig output."
+    },
+    {
+      "command": "npm run e2e",
+      "cwd": "frontend",
+      "exit_status": 1,
+      "summary": "Playwright webServer process failed to start."
+    },
+    {
+      "command": "docker compose -f infrastructure/docker-compose.yml --env-file .env config --quiet",
+      "exit_status": 0,
+      "summary": "Compose configuration accepted without emitting expanded values."
+    }
+  ],
+  "tests_not_run": [
+    {
+      "test": "Goal Intelligence test suite",
+      "reason": "No Python 3.12 interpreter was available; host Python 3.11.5 fails collection."
+    },
+    {
+      "test": "DM and DE PostgreSQL integration tests",
+      "reason": "Test DSNs were intentionally unset; tests would mutate a database."
+    },
+    {
+      "test": "Containers, migrations, RabbitMQ workers, replay and outage tests",
+      "reason": "Audit scope prohibited stateful startup without permission, and Compose contains no application services."
+    },
+    {
+      "test": "Anthropic and Context.dev live calls",
+      "reason": "External/chargeable provider calls were prohibited by the audit scope."
+    },
+    {
+      "test": "Deployed identity, webhook, production logs and health checks",
+      "reason": "No approved deployed environment was supplied."
+    }
+  ],
+  "unresolved_decisions": [
+    {
+      "id": "ICP-02",
+      "status": "PENDING",
+      "question": "Approve versioned public notification and action-package reads and select the package shape."
+    },
+    {
+      "id": "ICP-03",
+      "status": "PENDING",
+      "question": "Approve the reconciliation trigger/scheduling model without inventing a v1 event."
+    },
+    {
+      "id": "ICP-04",
+      "status": "PENDING",
+      "question": "Approve deterministic Finland eligibility semantics."
+    },
+    {
+      "id": "ICP-05",
+      "status": "PENDING",
+      "question": "Approve shared extraction failure semantics represented by the existing failure ledger."
+    },
+    {
+      "id": "ICP-06",
+      "status": "PENDING",
+      "question": "Approve freshness, provider timestamp, and cache-age semantics."
+    },
+    {
+      "id": "ICP-07",
+      "status": "DEFERRED_PENDING",
+      "question": "Decide whether a goal edit/version endpoint is in Phase 2."
+    },
+    {
+      "id": "ICP-09",
+      "status": "PENDING_P0",
+      "question": "Approve who may assign checked evidence and the corroboration/dispute rules."
+    },
+    {
+      "id": "ICP-10",
+      "status": "PENDING",
+      "question": "Approve canonical notification/package fingerprint semantics."
+    },
+    {
+      "id": "ICP-11",
+      "status": "PENDING",
+      "question": "Approve monitor quotas, baseline, and scheduling behavior."
+    },
+    {
+      "id": "ICP-12",
+      "status": "PENDING",
+      "question": "Approve webhook ingress, secret rotation, SSRF/redirect, and replay-window policy."
+    }
+  ]
+}

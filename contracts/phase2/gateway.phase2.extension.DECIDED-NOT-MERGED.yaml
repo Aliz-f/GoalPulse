@@ -1,0 +1,152 @@
+openapi: 3.1.0
+info:
+  title: GoalPulse Phase 2 additive demo endpoints - decided draft, not yet merged
+  version: 2.0.0-mvp-decided
+  description: >-
+    Additive contract authoring input for D1. This file is NOT the authoritative public
+    contract until merged into current repository as a versioned extension. Frozen
+    contracts/openapi/gateway.v1.yaml remains unchanged. Cookie/session login is
+    ISOLATED-DEMO-ONLY. P1 Agent package is intentionally not guessed here; derive
+    grouped seller_orders DTO exactly from existing D4 service-local schema.
+servers:
+  - url: http://localhost:8000
+components:
+  securitySchemes:
+    DemoSession:
+      type: apiKey
+      in: cookie
+      name: goalpulse_session
+  parameters:
+    GoalId:
+      in: path
+      name: goal_id
+      required: true
+      schema: {type: string, format: uuid}
+    NotificationId:
+      in: path
+      name: notification_id
+      required: true
+      schema: {type: string, format: uuid}
+  schemas:
+    DemoLogin:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username: {type: string, minLength: 1, maxLength: 128}
+        password: {type: string, minLength: 1, maxLength: 1024}
+    DemoUser:
+      type: object
+      additionalProperties: false
+      required: [user_id, display_name, expires_at]
+      properties:
+        user_id: {type: string, format: uuid}
+        display_name: {type: string}
+        expires_at: {type: string, format: date-time}
+    Notification:
+      type: object
+      additionalProperties: false
+      required: [notification_id, goal_id, goal_version, title, summary, created_at, is_read]
+      properties:
+        notification_id: {type: string, format: uuid}
+        goal_id: {type: string, format: uuid}
+        goal_version: {type: integer, minimum: 1}
+        title: {type: string}
+        summary: {type: string}
+        created_at: {type: string, format: date-time}
+        is_read: {type: boolean}
+paths:
+  /v2/demo/sessions:
+    post:
+      tags: [Demo Auth]
+      operationId: createLocalDemoSession
+      description: >-
+        DISABLED outside isolated demo. Validate pre-provisioned username and
+        password server-side, rate-limit attempts, set short-lived HttpOnly
+        SameSite=Lax session cookie. Require same-origin request/CSRF controls.
+        Cookie Secure must be true under HTTPS. Never return bearer token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DemoLogin'}
+      responses:
+        '200':
+          description: Sets a secure session cookie; returns non-secret owner identity
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DemoUser'}
+        '401': {description: Invalid demo credentials}
+        '429': {description: Too many attempts}
+        '503': {description: Demo auth disabled by deployment profile}
+  /v2/demo/session:
+    get:
+      tags: [Demo Auth]
+      operationId: getLocalDemoSession
+      security: [{DemoSession: []}]
+      responses:
+        '200':
+          description: Current demo session identity
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DemoUser'}
+        '401': {description: Session required}
+        '503': {description: Disabled outside demo}
+  /v2/demo/sessions/logout:
+    post:
+      tags: [Demo Auth]
+      operationId: logoutLocalDemoSession
+      security: [{DemoSession: []}]
+      responses:
+        '204': {description: Session cookie cleared}
+        '401': {description: Session required}
+  /v1/goals/{goal_id}/evaluations:
+    get:
+      tags: [Goal Evaluation]
+      operationId: listOwnGoalEvaluations
+      security: [{DemoSession: []}]
+      parameters:
+        - $ref: '#/components/parameters/GoalId'
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+      responses:
+        '200':
+          description: Exact-current-version and earlier evaluation history for owner
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '../schemas/goal-evaluation.v1.schema.json'}
+        '401': {description: Session required}
+        '404': {description: Goal not owned or absent}
+  /v1/notifications:
+    get:
+      tags: [Notification]
+      operationId: listOwnNotifications
+      security: [{DemoSession: []}]
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+      responses:
+        '200':
+          description: Owner-specific in-app notification records
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Notification'}
+        '401': {description: Session required}
+  /v1/notifications/{notification_id}/read:
+    patch:
+      tags: [Notification]
+      operationId: markOwnNotificationRead
+      security: [{DemoSession: []}]
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '204': {description: Marked read or already read}
+        '401': {description: Session required}
+        '404': {description: Not owned or not found}
