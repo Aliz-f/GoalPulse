@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
-  title: GoalPulse — INTERNAL service API proposal
-  version: 0.1.0-proposed
+  title: GoalPulse — INTERNAL service API
+  version: 1.0.0
   description: >-
-    DRAFT for review under ICP-01. Not a frozen implementation contract until
-    Developer 1 and each affected service owner sign off. Every route requires
-    a validated machine-to-machine identity; browser access is prohibited.
+    Accepted under ICP-01 and ICP-08. Every route requires a validated
+    machine-to-machine identity; browser access is prohibited. This historical
+    filename is retained for repository compatibility; its accepted status is
+    recorded in ADR-0002 and docs/implementation/DECISIONS.md.
 servers:
   - url: http://internal-service.local
 security:
