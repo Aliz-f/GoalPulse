@@ -83,5 +83,14 @@ def test_source_query_requests_stable_newest_order_and_limit():
     connection = ReadConnection([(payload,)])
     reads = EvidenceReads(lambda: connection, schema_directory=ROOT / "contracts/schemas")
     assert reads.by_source(UUID(payload["source_id"]), limit=5) == [payload]
-    assert "ORDER BY observed_at DESC, observation_id DESC LIMIT %s" in connection.query[0]
+    assert "ORDER BY observed_at DESC, created_at DESC, observation_id DESC LIMIT %s" in connection.query[0]
+    assert "c.original_observation_id = o.observation_id" in connection.query[0]
+    assert "c.result_observation_id IS NOT NULL" in connection.query[0]
+    assert "o.reliability <> 'checked' OR NOT EXISTS" in connection.query[0]
+    assert "x.observed_at >= o.observed_at" in connection.query[0]
+    for field in ("product_name", "model", "brand", "unit_price_eur_cents", "availability",
+                  "delivery_to_fi", "shipping_eur_cents", "tax_eur_cents"):
+        assert f"x.payload->'{field}' IS DISTINCT FROM o.payload->'{field}'" in connection.query[0]
+    assert "x.payload->>'shipping_eur_cents' IS NOT NULL" in connection.query[0]
+    assert "x.payload->>'delivery_to_fi' <> 'unknown'" in connection.query[0]
     assert connection.query[1] == (payload["source_id"], 5)

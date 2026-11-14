@@ -1,6 +1,8 @@
 import type { GoalDraft, GoalSpec, GoalSummary, Lifecycle, LifecycleAction } from "../contracts.ts";
+import { newestTimestampFirst } from "../format.ts";
 import { lifecycleAfter } from "../goals.ts";
-import type { ActionPackage, Notification, ProposedApi } from "../proposed.ts";
+import type { CheckStatus, GoalEvaluation, Notification } from "../extension.ts";
+import type { ActionPackage, ProposedApi } from "../proposed.ts";
 import { ApiError } from "./errors.ts";
 import { MOCK_SCRIPTS, type MockScript } from "./mock-scripts.ts";
 import type { GoalPulseApi, MockControls } from "./types.ts";
@@ -68,7 +70,9 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
   const sessions = new Map<string, MockSession>();
   const goals = new Map<string, MockGoal>();
   const notifications = new Map<string, Notification>();
+  const packageOf = new Map<string, string>(); // notification -> sample package (mock only)
   const packages = new Map<string, ActionPackage>();
+  const evaluations: GoalEvaluation[] = [];
   const delay = opts.delayMs ?? 350;
   const newId = opts.newId ?? (() => crypto.randomUUID());
   const now = opts.now ?? (() => new Date());
@@ -96,10 +100,11 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
     addGoal(verified, { opportunity_status: "verified", last_evaluated_at: iso(25 * 60_000) }, t - 86_400_000);
     seedVerifiedOffer(verified, 25 * 60_000, 24 * 3_600_000, false);
     seedVerifiedOffer(verified, 3 * 86_400_000, -2 * 86_400_000, true);
-    addGoal(specFrom(readyCandidate("procurement"), newId(), new Date(t - 2 * 86_400_000)), {
-      opportunity_status: "unknown",
-      last_evaluated_at: iso(3 * 3_600_000),
-    }, t - 2 * 86_400_000);
+    seedEvaluation(verified, iso(25 * 60_000), "satisfied", true);
+    seedEvaluation(verified, iso(6 * 3_600_000 + 25 * 60_000), "unknown", false);
+    const cafe = specFrom(readyCandidate("procurement"), newId(), new Date(t - 2 * 86_400_000));
+    addGoal(cafe, { opportunity_status: "unknown", last_evaluated_at: iso(3 * 3_600_000) }, t - 2 * 86_400_000);
+    seedEvaluation(cafe, iso(3 * 3_600_000), "unknown", false);
   }
 
   // SAMPLE DATA for mock mode: "shop.example" is a reserved, non-existent domain.
@@ -141,9 +146,38 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
       summary: "An offer at shop.example met every condition when checked: EUR 589.80 delivered to Finland. Not ordered.",
       created_at: pkg.created_at,
       is_read: read,
-      action_package_id: pkg.package_id,
     };
     notifications.set(n.notification_id, n);
+    packageOf.set(n.notification_id, pkg.package_id);
+  }
+
+  // SAMPLE DATA: condition codes are the ones Goal Evaluation emits; reasons are illustrative.
+  function seedEvaluation(spec: GoalSpec, at: string, status: CheckStatus, verified: boolean) {
+    const evidence = [newId()];
+    const conditions: GoalEvaluation["conditions"] =
+      spec.goal_type === "product_purchase"
+        ? [
+            { code: "identity_match", status: "satisfied", reason: "Model matches the requested product", observation_ids: evidence },
+            { code: "total_within_budget", status: "satisfied", reason: "EUR 589.80 incl. shipping and tax is within EUR 600.00", observation_ids: evidence },
+            verified
+              ? { code: "shipping_known", status: "satisfied", reason: "Shipping to FI stated on the product page", observation_ids: evidence }
+              : { code: "shipping_known", status: "unknown", reason: "Shipping cost to FI not stated on the checked page", observation_ids: [] },
+          ]
+        : [
+            { code: "full_basket_coverage", status: "satisfied", reason: "Both items found at one seller", observation_ids: evidence },
+            { code: "tax_known", status: "unknown", reason: "Seller doesn't say whether prices include VAT", observation_ids: [] },
+            { code: "total_within_budget", status: "unknown", reason: "Complete normalized payable basket total cannot be established", observation_ids: [] },
+          ];
+    evaluations.push({
+      evaluation_id: newId(),
+      goal_id: spec.goal_id,
+      goal_version: spec.version,
+      evaluated_at: at,
+      status,
+      conditions,
+      candidate_observation_ids: verified ? evidence : [],
+      is_opportunity_verified: verified,
+    });
   }
 
   function findGoal(id: string): MockGoal {
@@ -239,10 +273,20 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
       g.summary.lifecycle = next;
     },
 
+    async listEvaluations(goalId, limit = 20) {
+      await wait();
+      findGoal(goalId);
+      return evaluations
+        .filter((e) => e.goal_id === goalId)
+        .sort((a, b) => newestTimestampFirst(a.evaluated_at, b.evaluated_at))
+        .slice(0, Math.max(1, Math.min(limit, 100)))
+        .map((e) => structuredClone(e));
+    },
+
     async listNotifications(limit = 20) {
       await wait();
       return [...notifications.values()]
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .sort((a, b) => newestTimestampFirst(a.created_at, b.created_at))
         .slice(0, Math.max(1, Math.min(limit, 100)))
         .map((n) => ({ ...n }));
     },
@@ -260,6 +304,10 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
       if (!pkg) throw new ApiError(404, "not_found", "package not found");
       if (new Date(pkg.expires_at).getTime() <= now().getTime()) throw new ApiError(410, "gone", "package expired");
       return structuredClone(pkg);
+    },
+
+    packageIdFor(notificationId) {
+      return packageOf.get(notificationId) ?? null;
     },
 
     suggestedReply(sessionId) {

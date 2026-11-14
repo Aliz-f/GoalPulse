@@ -574,9 +574,19 @@ def build_candidate(state: WorkingState) -> dict[str, Any]:
 # --------------------------------------------------------------------------- compile
 
 
-def compile_turn(prev: WorkingState, patch: ExtractionPatch, extra_notices: Sequence[str] = ()) -> CompileResult:
+def compile_turn(
+    prev: WorkingState,
+    patch: ExtractionPatch,
+    extra_notices: Sequence[str] = (),
+    *,
+    withdraw_approval: bool = False,
+) -> CompileResult:
+    """``withdraw_approval`` is set when the user's message could not be processed: the
+    draft must not stay confirmable while a change the user just asked for was dropped."""
     state, notices = apply_patch(prev, patch)
     notices = [*extra_notices, *notices]
+    if withdraw_approval:
+        state.summary_approved = False
     _fill_proposals(state)
     missing = missing_fields(state)
     candidate = build_candidate(state)

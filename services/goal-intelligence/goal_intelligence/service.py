@@ -5,7 +5,11 @@ Framework-free so it can be tested without FastAPI. Each user turn:
 2. asks the extractor for an untrusted patch (outside any DB transaction),
 3. compiles it deterministically,
 4. appends revision N+1 only if the session is still at N (else 409).
-A failed extraction applies nothing and asks the user to resend (no undocumented 503).
+Provider failure (timeout, rate limit, malformed output after bounded retries) is visible
+and fails closed: the user's message is still recorded as revision N+1, but nothing from
+the failed call is applied, so that revision's candidate and missing fields equal N's,
+it can never be ready, and next_question starts with RETRY_NOTICE. There is no fallback
+to another provider and no undocumented 503 (the frozen API lists none).
 """
 
 from __future__ import annotations
@@ -75,7 +79,10 @@ class Limits:
 
 
 OPEN_STATES = ("collecting", "ready_for_confirmation")
-RETRY_NOTICE = "Sorry, I couldn't process that message just now. Could you send it again?"
+RETRY_NOTICE = (
+    "The AI assistant is unavailable right now, so nothing in your goal was changed. "
+    "Please send your message again."
+)
 EXPIRED_QUESTION = "This conversation expired. Please start a new goal."
 
 
@@ -147,7 +154,8 @@ class GoalIntelligenceService:
 
     @staticmethod
     def _revision_data(state: WorkingState, patch: ExtractionPatch, notices: list[str]) -> tuple[RevisionData, str | None]:
-        result = compile_turn(state, patch, extra_notices=notices)
+        failed = RETRY_NOTICE in notices
+        result = compile_turn(state, patch, extra_notices=notices, withdraw_approval=failed)
         data = RevisionData(
             state="ready_for_confirmation" if result.ready else "collecting",
             candidate_goal=result.candidate_goal,

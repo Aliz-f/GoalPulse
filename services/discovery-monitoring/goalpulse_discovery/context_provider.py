@@ -146,6 +146,11 @@ class ScrapeResult:
     markdown: Output
     credits_consumed: int | None = None
     request_attempts: int = 1
+    requested_at: datetime | None = None
+    provider_observed_at: datetime | None = None
+    seller_representation: str | None = field(default=None, repr=False)
+    resolved_addresses: tuple[str, ...] = ()
+    access_policy_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -171,7 +176,8 @@ class ContextProvider:
                  clock: Callable[[], datetime] = utc_now,
                  sleep: Callable[[float], None] = time.sleep,
                  timeout_seconds: float = 30, max_attempts: int = 3,
-                 max_retry_delay_seconds: float = 30) -> None:
+                 max_retry_delay_seconds: float = 30,
+                 access_policy_ids: tuple[str, ...] = ()) -> None:
         if not api_key or any(c.isspace() or ord(c) < 32 for c in api_key):
             raise ValueError("A server-side Context.dev API key is required")
         if (not 1 <= max_attempts <= 5 or not math.isfinite(timeout_seconds)
@@ -179,11 +185,17 @@ class ContextProvider:
                 or not math.isfinite(max_retry_delay_seconds)
                 or not 0 < max_retry_delay_seconds <= 60):
             raise ValueError("Invalid request/retry bounds")
+        if (not isinstance(access_policy_ids, tuple) or len(access_policy_ids) > 16
+                or len(set(access_policy_ids)) != len(access_policy_ids)
+                or any(not isinstance(value, str) or not re.fullmatch(r"pol_[A-Za-z0-9_-]{1,196}", value)
+                       for value in access_policy_ids)):
+            raise ValueError("Invalid Context.dev access policies")
         self._api_key = api_key
         self._transport = transport or ContextHttpsTransport()
         self._resolver, self._clock, self._sleep = resolver, clock, sleep
         self._timeout, self._attempts = timeout_seconds, max_attempts
         self._max_delay = max_retry_delay_seconds
+        self._access_policy_ids = access_policy_ids
 
     def __repr__(self) -> str:
         return "ContextProvider(api_key=<redacted>)"
@@ -240,7 +252,10 @@ class ContextProvider:
     def search(self, query: str, *, limit: int = 5) -> Mapping[str, Any]:
         if not query.strip() or len(query) > 2000 or type(limit) is not int or not 1 <= limit <= 5:
             raise ValueError("Search requires a query and a limit between 1 and 5")
-        result = self._request("POST", "/v1/web/search", {"query": query, "numResults": limit})
+        payload = {"query": query, "numResults": limit}
+        if self._access_policy_ids:
+            payload["policies"] = list(self._access_policy_ids)
+        result = self._request("POST", "/v1/web/search", payload)
         if not isinstance(result.get("results"), list):
             raise ProviderError("INVALID_RESPONSE")
         # URLs are evidence candidates. The caller must validate each before scraping.
@@ -248,15 +263,32 @@ class ContextProvider:
 
     def scrape(self, url: str) -> ScrapeResult:
         target = public_https_url(url, self._resolver)
-        result = self._request("POST", "/v1/web/scrape", {
+        requested_at = self._clock()
+        if requested_at.utcoffset() is None:
+            raise ValueError("Clock must be timezone aware")
+        requested_at = requested_at.astimezone(timezone.utc)
+        payload = {
             "url": target, "formats": {"product": True, "markdown": True},
             "sharedParams": {"mainContentOnly": True}, "maxAgeMs": 0,
-        })
+        }
+        if self._access_policy_ids:
+            payload["policies"] = list(self._access_policy_ids)
+        result = self._request("POST", "/v1/web/scrape", payload)
         fetched_at = self._clock()
         if fetched_at.utcoffset() is None:
             raise ValueError("Clock must be timezone aware")
         fetched_at = fetched_at.astimezone(timezone.utc)
+        if fetched_at < requested_at:
+            raise ProviderError("INVALID_CAPTURE_METADATA")
         final_url = public_https_url(result.get("url", target), self._resolver)
+        final_host = urlsplit(final_url).hostname
+        try:
+            resolved_addresses = tuple(sorted(set(self._resolver(final_host))))
+            if not resolved_addresses or any(not ipaddress.ip_address(value).is_global
+                                             for value in resolved_addresses):
+                raise ValueError
+        except (OSError, TypeError, ValueError):
+            raise ProviderError("UNSAFE_TARGET")
         cache = result.get("cache_metadata")
         age = cache.get("age_ms") if isinstance(cache, dict) else None
         if type(age) is not int or age < 0:
@@ -279,9 +311,30 @@ class ContextProvider:
         credits = usage.get("credits_consumed") if isinstance(usage, dict) else None
         if type(credits) is not int or credits < 0:
             credits = None
+        representation = None
+        metadata = result.get("metadata")
+        json_ld = metadata.get("jsonLd") if isinstance(metadata, dict) else None
+        if isinstance(json_ld, list):
+            products = [item for item in json_ld if isinstance(item, dict)
+                        and item.get("@type") == "Product" and item.get("url") == final_url]
+            if len(products) == 1:
+                def safe_json(value):
+                    if isinstance(value, Decimal):
+                        return str(value)
+                    raise TypeError
+                try:
+                    candidate = json.dumps(products[0], ensure_ascii=False, separators=(",", ":"),
+                                           allow_nan=False, default=safe_json)
+                    if len(candidate.encode("utf-8")) <= 16_384:
+                        representation = candidate
+                except (TypeError, ValueError, UnicodeError):
+                    representation = None
         return ScrapeResult(final_url, request_id, fetched_at, age, observed_at,
                             output("product", dict), output("markdown", str), credits,
-                            getattr(result, "request_attempts", 1))
+                            getattr(result, "request_attempts", 1), requested_at=requested_at,
+                            seller_representation=representation,
+                            resolved_addresses=resolved_addresses,
+                            access_policy_ids=self._access_policy_ids)
 
     def create_monitor(self, *, name: str, url: str, instructions: str | None = None,
                        webhook_url: str | None = None, frequency_minutes: int = 1440) -> MonitorCreated:
@@ -296,6 +349,8 @@ class ContextProvider:
             raise ValueError("Invalid monitor interval")
         payload: dict[str, Any] = {"name": name, "target": target,
                                   "schedule": {"type": "interval", "frequency": frequency_minutes, "unit": "minutes"}}
+        if self._access_policy_ids:
+            payload["policies"] = list(self._access_policy_ids)
         if webhook_url is not None:
             # Only server configuration may supply this, never a browser request.
             payload["webhook"] = {"url": public_https_url(webhook_url, self._resolver), "retry": {}}

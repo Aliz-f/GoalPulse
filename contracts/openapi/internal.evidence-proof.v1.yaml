@@ -1,0 +1,112 @@
+openapi: 3.1.0
+info:
+  title: GoalPulse — INTERNAL evidence proof extension
+  version: 1.0.0
+  description: >-
+    Additive ADR-0004 contract. Frozen Observation.v1 and the accepted internal
+    v1 API remain unchanged. Discovery submits a separately captured seller
+    representation; Data & Evidence alone decides whether it becomes checked.
+servers:
+  - url: http://internal-service.local
+security:
+  - ServiceBearer: []
+components:
+  securitySchemes:
+    ServiceBearer: {type: http, scheme: bearer, bearerFormat: JWT}
+  schemas:
+    ExtractionSubmission:
+      $ref: './internal.proposed.v1.yaml#/components/schemas/ExtractionSubmission'
+    SellerProof:
+      type: object
+      additionalProperties: false
+      required: [seller_representation, resolved_addresses, access_policy_ids]
+      properties:
+        seller_representation:
+          type: string
+          minLength: 2
+          maxLength: 16384
+          description: Bounded JSON-LD captured from Context page metadata, not an excerpt.
+        resolved_addresses:
+          type: array
+          minItems: 1
+          maxItems: 32
+          uniqueItems: true
+          items: {type: string, format: ip}
+        access_policy_ids:
+          type: array
+          minItems: 1
+          maxItems: 16
+          uniqueItems: true
+          items: {type: string, pattern: '^pol_[A-Za-z0-9_-]{1,196}$'}
+    CheckedExtractionReceipt:
+      type: object
+      additionalProperties: false
+      required: [accepted, observation_id, reason, reliability, checked_observation_id, check_reasons]
+      properties:
+        accepted: {type: boolean}
+        observation_id: {type: [string, 'null'], format: uuid}
+        reason: {type: [string, 'null']}
+        reliability: {type: string, enum: [unverified, checked, disputed]}
+        checked_observation_id: {type: [string, 'null'], format: uuid}
+        check_reasons: {type: array, items: {type: string}}
+    EvidenceCheck:
+      type: object
+      additionalProperties: false
+      required: [check_id, observation_id, decision, reasons, policy_version,
+                 normalizer_version, checked_at, condition]
+      properties:
+        check_id: {type: string, format: uuid}
+        observation_id: {type: string, format: uuid}
+        decision: {type: string, enum: [checked, unverified, disputed]}
+        reasons: {type: array, items: {type: string}}
+        policy_version: {type: string}
+        normalizer_version: {type: string}
+        checked_at: {type: string, format: date-time}
+        condition: {type: [string, 'null'], enum: [new, used, refurbished, null]}
+paths:
+  /internal/v2/extractions/with-proof:
+    post:
+      operationId: internalSubmitExtractionWithProof
+      tags: [data-evidence]
+      description: >-
+        DM-only idempotent submission. DE first records an unverified v1
+        Observation, persists the separate immutable proof, and runs its internal
+        deterministic checker. Caller assertions never select the decision.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [extraction, proof]
+              properties:
+                extraction: {$ref: '#/components/schemas/ExtractionSubmission'}
+                proof: {$ref: '#/components/schemas/SellerProof'}
+      responses:
+        '200':
+          description: Durable extraction and checker outcome
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CheckedExtractionReceipt'}
+        '400': {description: Invalid proof or extraction}
+        '403': {description: DM service identity with de.evidence-proof.write required}
+        '409': {description: Attempt identity reused with different content}
+        '503': {description: Checker unavailable}
+  /internal/v2/evidence-checks/{observation_id}:
+    get:
+      operationId: internalGetEvidenceCheck
+      tags: [data-evidence]
+      parameters:
+        - name: observation_id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Bounded internal condition proof for a checked snapshot
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EvidenceCheck'}
+        '403': {description: Authorized internal consumer required}
+        '404': {description: No check for this observation}
