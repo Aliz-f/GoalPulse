@@ -1,3 +1,5 @@
 jsonschema>=4.21,<5
 PyYAML>=6,<7
 pytest>=8,<10
+# Starlette 1.x TestClient prefers httpx2; plain httpx can hang on Python 3.12.
+httpx2>=2,<3

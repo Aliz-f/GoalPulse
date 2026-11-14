@@ -10,3 +10,4 @@ __pycache__/
 .idea/
 node_modules/
 *.log
+/GoalPulse-Phase2-Decided-MVP.zip
