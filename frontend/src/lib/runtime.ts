@@ -35,13 +35,28 @@ export class RuntimeConfigError extends Error {
 }
 
 export function normalizeBaseUrl(raw: string | undefined): string {
-  const value = (raw ?? "").trim().replace(/\/+$/, "");
-  if (!/^https?:\/\/[^/]+$/.test(value)) {
+  const value = (raw ?? "").trim();
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
     throw new RuntimeConfigError(
       "NEXT_PUBLIC_GATEWAY_URL must be the http(s) origin of the public gateway, e.g. http://localhost:8000",
     );
   }
-  return value;
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.pathname !== "/" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new RuntimeConfigError(
+      "NEXT_PUBLIC_GATEWAY_URL must be the http(s) origin of the public gateway, without credentials, path, query or fragment",
+    );
+  }
+  return url.origin;
 }
 
 function pick<T extends string>(name: string, raw: string | undefined, allowed: readonly T[]): T {

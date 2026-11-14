@@ -173,6 +173,9 @@ describe("gateway client (frozen public contract)", () => {
     assert.throws(() => normalizeBaseUrl(""));
     assert.throws(() => normalizeBaseUrl("javascript:alert(1)"));
     assert.throws(() => normalizeBaseUrl("http://gw/v1"), "an origin, not a path");
+    assert.throws(() => normalizeBaseUrl("http://user:secret@gw"), "credentials are public in a NEXT_PUBLIC value");
+    assert.throws(() => normalizeBaseUrl("http://gw?route=v1"), "an origin has no query");
+    assert.throws(() => normalizeBaseUrl("http://gw#v1"), "an origin has no fragment");
   });
 });
 

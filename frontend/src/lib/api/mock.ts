@@ -1,4 +1,5 @@
 import type { GoalDraft, GoalSpec, GoalSummary, Lifecycle, LifecycleAction } from "../contracts.ts";
+import { newestTimestampFirst } from "../format.ts";
 import { lifecycleAfter } from "../goals.ts";
 import type { CheckStatus, GoalEvaluation, Notification } from "../extension.ts";
 import type { ActionPackage, ProposedApi } from "../proposed.ts";
@@ -277,7 +278,7 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
       findGoal(goalId);
       return evaluations
         .filter((e) => e.goal_id === goalId)
-        .sort((a, b) => b.evaluated_at.localeCompare(a.evaluated_at))
+        .sort((a, b) => newestTimestampFirst(a.evaluated_at, b.evaluated_at))
         .slice(0, Math.max(1, Math.min(limit, 100)))
         .map((e) => structuredClone(e));
     },
@@ -285,7 +286,7 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
     async listNotifications(limit = 20) {
       await wait();
       return [...notifications.values()]
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .sort((a, b) => newestTimestampFirst(a.created_at, b.created_at))
         .slice(0, Math.max(1, Math.min(limit, 100)))
         .map((n) => ({ ...n }));
     },

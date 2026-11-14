@@ -6,6 +6,7 @@ import { ApiError } from "../src/lib/api/errors.ts";
 import { createGatewayApi } from "../src/lib/api/gateway.ts";
 import { createMockApi } from "../src/lib/api/mock.ts";
 import { conditionLabel, headlineFor, isConsistentlyVerified, progressText, summarizeEvaluations } from "../src/lib/evaluations.ts";
+import { timestampTitle } from "../src/lib/format.ts";
 import type { GoalEvaluation } from "../src/lib/extension.ts";
 
 const GOAL = "11111111-1111-4111-8111-111111111111";
@@ -72,6 +73,16 @@ describe("summarizeEvaluations", () => {
       [earlier.evaluation_id],
     );
     assert.equal(s.olderVersionCount, 1);
+  });
+
+  it("orders RFC 3339 timestamps by instant, not by their written offsets", () => {
+    const newer = evaluation({ evaluation_id: "newer", evaluated_at: "2026-11-14T09:00:00Z" });
+    const older = evaluation({ evaluation_id: "older", evaluated_at: "2026-11-14T10:00:00+02:00" });
+    const s = summarizeEvaluations([older, newer], GOAL, 2);
+    assert.ok(s.kind === "result");
+    if (s.kind !== "result") return;
+    assert.equal(s.latest.evaluation_id, "newer");
+    assert.equal(timestampTitle(older.evaluated_at), "2026-11-14T08:00:00.000Z (UTC)");
   });
 
   it("lists failed conditions first, then unknown, then met, with evidence counts", () => {

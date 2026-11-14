@@ -8,12 +8,28 @@ import type { NextConfig } from "next";
 function checkRuntime(env: NodeJS.ProcessEnv): void {
   const profile = env.NEXT_PUBLIC_GOALPULSE_PROFILE?.trim() ?? "";
   const mode = env.NEXT_PUBLIC_API_MODE?.trim() ?? "";
-  const url = env.NEXT_PUBLIC_GATEWAY_URL?.trim().replace(/\/+$/, "") ?? "";
+  const rawUrl = env.NEXT_PUBLIC_GATEWAY_URL?.trim() ?? "";
   const problems: string[] = [];
   if (!["test", "dev", "demo"].includes(profile)) problems.push("NEXT_PUBLIC_GOALPULSE_PROFILE must be test, dev or demo");
   if (!["mock", "gateway"].includes(mode)) problems.push("NEXT_PUBLIC_API_MODE must be mock or gateway");
   if (profile === "demo" && mode !== "gateway") problems.push("profile 'demo' requires NEXT_PUBLIC_API_MODE=gateway; the mock is refused");
-  if (mode === "gateway" && !/^https?:\/\/[^/]+$/.test(url)) problems.push("NEXT_PUBLIC_GATEWAY_URL must be the http(s) origin of the public gateway");
+  if (mode === "gateway") {
+    try {
+      const url = new URL(rawUrl);
+      if (
+        !["http:", "https:"].includes(url.protocol) ||
+        url.username !== "" ||
+        url.password !== "" ||
+        url.pathname !== "/" ||
+        url.search !== "" ||
+        url.hash !== ""
+      ) {
+        problems.push("NEXT_PUBLIC_GATEWAY_URL must be an http(s) origin without credentials, path, query or fragment");
+      }
+    } catch {
+      problems.push("NEXT_PUBLIC_GATEWAY_URL must be the http(s) origin of the public gateway");
+    }
+  }
   if (problems.length) {
     throw new Error(`GoalPulse frontend configuration:\n  - ${problems.join("\n  - ")}\nSee frontend/README.md#modes and .env.example.`);
   }

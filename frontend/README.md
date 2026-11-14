@@ -25,7 +25,7 @@ Three settings, all required (`.env.example`). There are **no defaults**: a miss
 | `NEXT_PUBLIC_GOALPULSE_PROFILE` | `NEXT_PUBLIC_API_MODE` | Behaviour |
 |---|---|---|
 | `test` / `dev` | `mock` | In-browser replay of conversations **recorded from the real Goal Intelligence service**. Your text is not interpreted; each reply advances the script (a "Scripted reply" chip shows the next one). Labelled "Mock mode" in the header. "Simulate an edit from another tab" forces the next send/confirm to get HTTP 409. No accounts. Sessions live in memory, so a refresh loses them. |
-| `test` / `dev` / `demo` | `gateway` | Calls the public gateway at `NEXT_PUBLIC_GATEWAY_URL` (an origin, e.g. `http://localhost:8000`). Sign-in is the demo cookie flow below. |
+| `test` / `dev` / `demo` | `gateway` | Calls the public gateway at `NEXT_PUBLIC_GATEWAY_URL` (an HTTP(S) origin with no credentials, path, query or fragment, e.g. `http://localhost:8000`). Sign-in is the demo cookie flow below. |
 | `demo` | `mock` | **Refused.** The demo only runs against the real gateway. |
 
 ### Sign-in in gateway mode (ADR-0003 MVP-06)

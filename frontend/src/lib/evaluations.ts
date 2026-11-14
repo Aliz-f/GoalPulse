@@ -10,7 +10,7 @@
 // - No percentage unless Goal Evaluation reported one (it only does for a verified basket).
 
 import type { CheckStatus, ConditionResult, GoalEvaluation } from "./extension.ts";
-import { formatEurCents } from "./format.ts";
+import { formatEurCents, newestTimestampFirst } from "./format.ts";
 import type { Tone } from "./goals.ts";
 
 export interface Headline {
@@ -139,7 +139,7 @@ export function progressText(e: GoalEvaluation): string | null {
   return null;
 }
 
-const newestFirst = (a: GoalEvaluation, b: GoalEvaluation) => b.evaluated_at.localeCompare(a.evaluated_at);
+const newestFirst = (a: GoalEvaluation, b: GoalEvaluation) => newestTimestampFirst(a.evaluated_at, b.evaluated_at);
 
 export function summarizeEvaluations(evaluations: GoalEvaluation[], goalId: string, goalVersion: number): EvaluationSummary {
   const mine = evaluations.filter((e) => e.goal_id === goalId);

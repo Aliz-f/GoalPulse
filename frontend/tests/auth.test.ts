@@ -46,6 +46,9 @@ describe("runtime selection fails closed", () => {
     ["blank mode", { NEXT_PUBLIC_GOALPULSE_PROFILE: "dev", NEXT_PUBLIC_API_MODE: "  " }],
     ["gateway without URL", { NEXT_PUBLIC_GOALPULSE_PROFILE: "dev", NEXT_PUBLIC_API_MODE: "gateway" }],
     ["gateway URL with a path", { NEXT_PUBLIC_GOALPULSE_PROFILE: "dev", NEXT_PUBLIC_API_MODE: "gateway", NEXT_PUBLIC_GATEWAY_URL: "http://gw/internal" }],
+    ["gateway URL with credentials", { NEXT_PUBLIC_GOALPULSE_PROFILE: "dev", NEXT_PUBLIC_API_MODE: "gateway", NEXT_PUBLIC_GATEWAY_URL: "http://user:secret@gw" }],
+    ["gateway URL with query", { NEXT_PUBLIC_GOALPULSE_PROFILE: "dev", NEXT_PUBLIC_API_MODE: "gateway", NEXT_PUBLIC_GATEWAY_URL: "http://gw?route=internal" }],
+    ["gateway URL with fragment", { NEXT_PUBLIC_GOALPULSE_PROFILE: "dev", NEXT_PUBLIC_API_MODE: "gateway", NEXT_PUBLIC_GATEWAY_URL: "http://gw#internal" }],
   ];
   for (const [name, env] of bad) {
     it(`refuses: ${name}`, () => assert.throws(() => resolveRuntime(env), RuntimeConfigError));

@@ -9,7 +9,7 @@ import { ApiError, adviceFor } from "@/lib/api/errors";
 import type { GoalSpec } from "@/lib/contracts";
 import { headlineFor, summarizeEvaluations, type EvaluationSummary } from "@/lib/evaluations";
 import type { CheckStatus } from "@/lib/extension";
-import { formatDuration, formatTimestamp } from "@/lib/format";
+import { formatDuration, formatTimestamp, timestampTitle } from "@/lib/format";
 import { freshness } from "@/lib/goals";
 
 const STATUS_ICON: Record<CheckStatus, LucideIcon> = { satisfied: CircleCheck, unsatisfied: CircleX, unknown: CircleQuestionMark };
@@ -105,7 +105,7 @@ function Result({ summary, version }: { summary: EvaluationSummary; version: num
         <p>{headline.detail}</p>
         <span className="hint">
           Last completed check:{" "}
-          <time dateTime={latest.evaluated_at} title={`${latest.evaluated_at} (UTC)`}>
+          <time dateTime={latest.evaluated_at} title={timestampTitle(latest.evaluated_at)}>
             {formatTimestamp(latest.evaluated_at)}
           </time>{" "}
           ({freshness(latest.evaluated_at).replace(/^Checked /, "")})
@@ -143,7 +143,7 @@ function Result({ summary, version }: { summary: EvaluationSummary; version: num
           <ul className="history">
             {history.map((e) => (
               <li key={e.evaluation_id}>
-                <time dateTime={e.evaluated_at} title={`${e.evaluated_at} (UTC)`}>
+                <time dateTime={e.evaluated_at} title={timestampTitle(e.evaluated_at)}>
                   {formatTimestamp(e.evaluated_at)}
                 </time>{" "}
                 · {headlineFor(e).label}
@@ -156,4 +156,3 @@ function Result({ summary, version }: { summary: EvaluationSummary; version: num
     </>
   );
 }
-

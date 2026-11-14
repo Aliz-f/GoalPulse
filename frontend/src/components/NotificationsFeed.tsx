@@ -9,7 +9,7 @@ import { getApi } from "@/lib/api";
 import { ApiError, adviceFor } from "@/lib/api/errors";
 import { hasMockControls } from "@/lib/api/types";
 import type { Notification } from "@/lib/extension";
-import { formatTimestamp } from "@/lib/format";
+import { formatTimestamp, timestampTitle } from "@/lib/format";
 
 type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ok"; items: Notification[] };
 
@@ -99,7 +99,7 @@ export function NotificationsFeed() {
               </p>
               <p>{n.summary}</p>
               <p className="hint">
-                <time dateTime={n.created_at} title={`${n.created_at} (UTC)`}>
+                <time dateTime={n.created_at} title={timestampTitle(n.created_at)}>
                   {formatTimestamp(n.created_at)}
                 </time>{" "}
                 · goal version {n.goal_version} · Offers can change before checkout; re-check on the seller&apos;s site.
