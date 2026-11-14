@@ -69,13 +69,15 @@ class AnthropicExtractor:
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-haiku-4-5-20251001",
+        model: str,
         *,
         max_tokens: int = 800,
         transport: Transport = _urllib_transport,
     ) -> None:
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY is required for the anthropic provider")
+        if not model:
+            raise ValueError("GI_LLM_MODEL is required for the anthropic provider")
         self._api_key = api_key
         self.model_id = model
         self._max_tokens = max_tokens
@@ -121,12 +123,21 @@ class AnthropicExtractor:
             err.transient = True
             raise err
         if status != 200:
-            raise ExtractorError(f"model request rejected ({status})")
+            # Distinct, secret-free codes so a wrong key or an unavailable model is obvious
+            # in llm_attempts and the smoke test. None of these are retried.
+            err = ExtractorError(f"model request rejected ({status})")
+            err.code = {401: "provider_auth_failed", 403: "provider_forbidden", 404: "model_not_found"}.get(
+                status, "provider_rejected_request"
+            )
+            raise err
         try:
             payload = json.loads(raw)
             text = "".join(b.get("text", "") for b in payload.get("content", []) if b.get("type") == "text")
+            truncated = payload.get("stop_reason") == "max_tokens"
         except (ValueError, AttributeError, TypeError) as exc:
             raise ExtractorMalformedOutput("unreadable model response") from exc
+        if truncated:
+            raise ExtractorMalformedOutput("model response was cut off at the token limit")
         text = text.strip()
         if text.startswith("```"):
             text = text.strip("`").removeprefix("json").strip()
