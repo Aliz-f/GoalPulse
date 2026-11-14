@@ -1,0 +1,20 @@
+R2-D4-04 redacted recorded-test summary — 2026-11-14
+Branch: feat/r2-d4-04-recurring-procurement; uncommitted working tree
+mode=recorded_test; live_deployment=false; external_network=blocked
+
+Executed: procurement_recorded_smoke.py --output /private/tmp/goalpulse-r2-d4-04-recorded.json
+PASS recorded procurement worker/API smoke; synthetic evidence written
+PASS L/kg/pcs two-seller basket = 2720 EUR cents (shipping once/seller, taxes once/line)
+PASS default unconfirmed normalization -> unknown; no verified event
+PASS original café quantities/quality -> unknown; no verified event/progress percentage
+PASS replay -> one saved evaluation; exact saved API -> 200
+
+Root validator via existing venv: PASS 5 schemas, 13 examples, 4 event routes
+Root pytest via existing venv/readline workaround:
+1039 passed, 19 skipped, 1 warning in 3.56s
+git diff --check: PASS
+
+Default python cannot run checks: missing PyYAML/pytest.
+NOT RUN live infrastructure tests: disposable service DB configuration absent.
+BLOCKED live basket verification: approved D3 normalization + versioned quantity/quality/quote proof pending.
+No real merchant claims, credentials, provider bodies or private goals are included.

@@ -1,88 +1,49 @@
 import type { ConfirmRequest, GoalDraft, GoalSpec, GoalSummary } from "../contracts.ts";
-import { ApiError, kindForStatus } from "./errors.ts";
+import { createHttp, readJson, type HttpOptions } from "./http.ts";
+import type { GoalEvaluation, Notification } from "../extension.ts";
 import type { GoalPulseApi } from "./types.ts";
 
-type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
+export { normalizeBaseUrl } from "../runtime.ts";
 
-export interface GatewayOptions {
-  /** Public gateway origin, e.g. http://localhost:8000. Never a private service URL. */
-  baseUrl: string;
-  /** Returns the end-user access token (JWT) or null when signed out. */
-  getToken: () => string | null;
-  fetchImpl?: FetchLike;
-  newCorrelationId?: () => string;
-}
+export type GatewayOptions = HttpOptions;
 
-export function normalizeBaseUrl(raw: string | undefined): string {
-  const value = (raw ?? "").trim().replace(/\/+$/, "");
-  if (!/^https?:\/\/[^/]+/.test(value)) {
-    throw new Error("NEXT_PUBLIC_GATEWAY_URL must be an http(s) URL of the public gateway");
-  }
-  return value;
-}
+/** The contract allows limit 1..100. */
+const clamp = (n: number) => Math.max(1, Math.min(100, Math.trunc(n) || 20));
 
-/** Client for the frozen public gateway contract (contracts/openapi/gateway.v1.yaml). */
+/**
+ * Client for the frozen public gateway contract (contracts/openapi/gateway.v1.yaml) and the
+ * owner-scoped evaluation/notification reads of gateway.phase2.extension.v1.yaml.
+ * Authenticated by the gateway's HttpOnly demo session cookie (see http.ts).
+ */
 export function createGatewayApi(opts: GatewayOptions): GoalPulseApi {
-  const base = normalizeBaseUrl(opts.baseUrl);
-  const doFetch: FetchLike = opts.fetchImpl ?? ((input, init) => fetch(input, init));
-  const correlationId = opts.newCorrelationId ?? (() => crypto.randomUUID());
-
-  async function call<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
-    const token = opts.getToken();
-    if (!token) throw new ApiError(401, "not_signed_in", "not signed in");
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-      Authorization: `Bearer ${token}`,
-      "X-Correlation-ID": correlationId(),
-    };
-    if (body !== undefined) headers["Content-Type"] = "application/json";
-
-    let res: Response;
-    try {
-      res = await doFetch(`${base}${path}`, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-        cache: "no-store",
-        credentials: "omit",
-      });
-    } catch {
-      throw new ApiError(0, "network", "network error");
-    }
-
-    if (res.status === 204) return undefined as T;
-    if (res.ok) return (await res.json()) as T;
-
-    // Error body is the ICP-01 shape {code, message}; the frozen gateway contract
-    // doesn't require one, so fall back to the status. A 409 carries no revision:
-    // callers re-GET the session to see the latest draft.
-    let detail: { code?: unknown; message?: unknown } = {};
-    try {
-      detail = await res.json();
-    } catch {
-      // no body
-    }
-    const message = typeof detail.message === "string" ? detail.message : `HTTP ${res.status}`;
-    const code = typeof detail.code === "string" ? detail.code : null;
-    throw new ApiError(res.status, kindForStatus(res.status), message, code);
-  }
+  const http = createHttp(opts);
+  const json = async <T>(method: "GET" | "POST", path: string, body?: unknown) =>
+    readJson<T>(await http.send(method, path, body));
 
   const session = (id: string) => `/v1/goal-sessions/${encodeURIComponent(id)}`;
   const goal = (id: string) => `/v1/goals/${encodeURIComponent(id)}`;
 
   return {
     mode: "gateway",
-    createSession: (initialMessage) =>
-      call<GoalDraft>("POST", "/v1/goal-sessions", { initial_message: initialMessage }),
+    createSession: (initialMessage) => json<GoalDraft>("POST", "/v1/goal-sessions", { initial_message: initialMessage }),
     sendMessage: (sessionId, message, expectedRevision) =>
-      call<GoalDraft>("POST", `${session(sessionId)}/messages`, { message, expected_revision: expectedRevision }),
-    getSession: (sessionId) => call<GoalDraft>("GET", session(sessionId)),
+      json<GoalDraft>("POST", `${session(sessionId)}/messages`, { message, expected_revision: expectedRevision }),
+    getSession: (sessionId) => json<GoalDraft>("GET", session(sessionId)),
     confirm: (sessionId, expectedRevision) => {
       const body: ConfirmRequest = { expected_revision: expectedRevision, approved: true };
-      return call<GoalSpec>("POST", `${session(sessionId)}/confirm`, body);
+      return json<GoalSpec>("POST", `${session(sessionId)}/confirm`, body);
     },
-    listGoals: (status) => call<GoalSummary[]>("GET", status ? `/v1/goals?status=${encodeURIComponent(status)}` : "/v1/goals"),
-    getGoal: (goalId) => call<GoalSpec>("GET", goal(goalId)),
-    updateLifecycle: (goalId, action) => call<void>("PATCH", `${goal(goalId)}/lifecycle`, { action }),
+    listGoals: (status) =>
+      json<GoalSummary[]>("GET", status ? `/v1/goals?status=${encodeURIComponent(status)}` : "/v1/goals"),
+    getGoal: (goalId) => json<GoalSpec>("GET", goal(goalId)),
+    updateLifecycle: async (goalId, action) => {
+      await http.send("PATCH", `${goal(goalId)}/lifecycle`, { action });
+    },
+    listEvaluations: (goalId, limit = 20) =>
+      json<GoalEvaluation[]>("GET", `${goal(goalId)}/evaluations?limit=${clamp(limit)}`),
+    listNotifications: (limit = 20) => json<Notification[]>("GET", `/v1/notifications?limit=${clamp(limit)}`),
+    markNotificationRead: async (notificationId) => {
+      await http.send("PATCH", `/v1/notifications/${encodeURIComponent(notificationId)}/read`);
+    },
   };
 }

@@ -7,6 +7,7 @@ import hashlib
 import ipaddress
 import json
 from urllib.parse import urlsplit, urlunsplit
+from uuid import UUID
 from .url_policy import has_credentials
 from .contracts import Document
 
@@ -75,7 +76,40 @@ def same_offer_capture(original: Document, latest: Document) -> bool:
 
 
 def offer_fingerprint(goal: Document, observations: list[Document]) -> str:
+    """Phase 1 compatibility key, retained for existing stored notifications."""
     snapshots = [offer_snapshot(observation) for observation in observations]
     payload = dict(goal_id=goal['goal_id'], goal_version=goal['version'],
                    criteria=goal['criteria'], offers=sorted(snapshots, key=canonical))
     return hashlib.sha256(canonical(payload).encode()).hexdigest()
+
+
+def business_fingerprint(goal: Document, observations: list[Document]) -> str:
+    """ADR-0003 P0 product business key, independent of listing/capture IDs.
+
+    The exact-model goal query is the immutable selected product key; formatting
+    follows the existing evaluator's case/whitespace normalization. v1 cannot
+    expose observed product condition, so its key component stays 'unknown'.
+    This marker is never evidence that a required condition was satisfied.
+    P1 basket canonicalization remains on its existing compatibility policy.
+    """
+    if goal['goal_type'] != 'product_purchase':
+        return offer_fingerprint(goal, observations)
+    if len(observations) != 1 or goal['criteria']['quantity'] != 1:
+        raise ValueError('P0 business key requires one product and one checked offer')
+    observation = observations[0]
+    url = public_url(observation['source_url'])
+    if url is None:
+        raise ValueError('Unsafe evidence source link')
+    price, shipping, tax = (observation[k] for k in
+                            ('unit_price_eur_cents', 'shipping_eur_cents', 'tax_eur_cents'))
+    if any(type(amount) is not int or amount < 0 for amount in (price, shipping, tax)):
+        raise ValueError('Business key requires known integer payable components')
+    product_key = ' '.join(goal['criteria']['product']['query'].casefold().split())
+    if not product_key:
+        raise ValueError('Empty canonical product key')
+    # Escape the delimiter and the escape marker; preserve ordinary keys.
+    product_key = product_key.replace('%', '%25').replace('|', '%7C')
+    fields = [str(UUID(goal['goal_id'])), str(goal['version']), urlsplit(url).hostname,
+              product_key, 'EUR', str(price + shipping + tax), str(shipping), str(tax),
+              'unknown', goal['criteria']['delivery_country']]
+    return hashlib.sha256('|'.join(fields).encode('utf-8')).hexdigest()

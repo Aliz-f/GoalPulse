@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse
 
 from .auth import ServiceAuthError, require_service_scope
 
@@ -14,8 +15,26 @@ def _authorize(value: str | None) -> None:
         raise HTTPException(403, "service identity required") from exc
 
 
-def create_app(registry) -> FastAPI:
+def create_app(registry, *, readiness=None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.get("/health/live")
+    async def live():
+        return {"status": "live"}
+
+    @app.get("/health/ready")
+    async def ready():
+        if readiness is None or not readiness():
+            return JSONResponse(status_code=503, content={"status": "unavailable"})
+        return {"status": "ready"}
+
+    @app.middleware("http")
+    async def dependency_failure(request, call_next):
+        try:
+            return await call_next(request)
+        except Exception:
+            # Catch before server error logging can expose driver/DSN details.
+            return JSONResponse(status_code=503, content={"detail": "discovery dependency unavailable"})
 
     @app.get("/internal/v1/sources/{source_id}/subscriptions")
     async def subscriptions(source_id: UUID, authorization: str | None = Header(default=None)):

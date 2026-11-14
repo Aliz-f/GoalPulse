@@ -60,7 +60,8 @@ class PublicationGuard:
                 seen[row['observation_id']] = row
             if oid in seen and seen[oid] != observation:
                 raise ValueError('Publication evidence snapshot conflict')
-            seen[oid] = observation
+            # Validate the cited record, but choose current state only from the
+            # DE latest read. Re-inserting history can hide a same-time downgrade.
             latest = max(seen.values(), key=lambda row: (
                 datetime.fromisoformat(row['observed_at'].replace('Z', '+00:00')), row['observation_id'],
             ))

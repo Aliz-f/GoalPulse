@@ -9,11 +9,37 @@ from .context_provider import ProviderError
 from .persistence import Database
 
 
+def execute_attempt(call, *, now, deadline, attempts, max_attempts=5):
+    """Same bounded error/backoff semantics for initial, periodic and manual scans."""
+    retry_after = 0
+    if deadline <= now:
+        result, state = "DEADLINE_EXCEEDED", "dead"
+    else:
+        try:
+            result, state = call(), "done"
+        except ProviderError as error:
+            retry_after = error.retry_after_seconds or 0
+            transient = error.code in ("NETWORK_ERROR", "RATE_LIMITED") or error.status in (408, 500, 502, 503, 504)
+            if transient and retry_after > max(0, (deadline - now).total_seconds()):
+                state, result, retry_after = "dead", "RETRY_AFTER_DEADLINE", 0
+            else:
+                state = "pending" if transient and attempts + 1 < max_attempts else "dead"
+                result = error.code
+        except ValueError:
+            state, result = "dead", "INVALID_GOAL_OR_PAYLOAD"
+        except Exception:
+            state = "pending" if attempts + 1 < max_attempts else "dead"
+            result = "DEPENDENCY_FAILURE"
+    delay = max(min(2 ** (attempts + 1), 300), retry_after)
+    return state, result, now + timedelta(seconds=delay)
+
+
 class DiscoveryJobs:
     def __init__(self, database: Database, *, clock=lambda: datetime.now(timezone.utc), max_attempts=5) -> None:
         if type(max_attempts) is not int or not 1 <= max_attempts <= 10:
             raise ValueError("Invalid job retry bound")
         self.database, self.clock, self.max_attempts = database, clock, max_attempts
+        self.last_result = None
 
     def accept(self, event: dict) -> bool:
         fingerprint = sha256(json.dumps(event, sort_keys=True, allow_nan=False).encode()).hexdigest()
@@ -42,31 +68,14 @@ class DiscoveryJobs:
                 ORDER BY next_attempt_at LIMIT 1 FOR UPDATE SKIP LOCKED""", (now,))
             row = cursor.fetchone()
             if row is None:
+                self.last_result = None
                 return "idle"
             job_id, goal_id, version, correlation, attempts, deadline = row
-            retry_after = 0
-            if deadline <= now:
-                result, state = "DEADLINE_EXCEEDED", "dead"
-            else:
-                try:
-                    result = worker.run(UUID(str(goal_id)), version, UUID(str(correlation)))
-                    state = "done"
-                except ProviderError as error:
-                    retry_after = error.retry_after_seconds or 0
-                    transient = error.code in ("NETWORK_ERROR", "RATE_LIMITED") or error.status in (408, 500, 502, 503, 504)
-                    remaining = max(0, (deadline - now).total_seconds())
-                    if transient and retry_after > remaining:
-                        state, result, retry_after = "dead", "RETRY_AFTER_DEADLINE", 0
-                    else:
-                        state = "pending" if transient and attempts + 1 < self.max_attempts else "dead"
-                        result = error.code
-                except ValueError:
-                    state, result = "dead", "INVALID_GOAL_OR_PAYLOAD"
-                except Exception:
-                    state = "pending" if attempts + 1 < self.max_attempts else "dead"
-                    result = "DEPENDENCY_FAILURE"
-            delay = max(min(2 ** (attempts + 1), 300), retry_after)
+            state, result, retry_at = execute_attempt(
+                lambda: worker.run(UUID(str(goal_id)), version, UUID(str(correlation))),
+                now=now, deadline=deadline, attempts=attempts, max_attempts=self.max_attempts)
             cursor.execute("""UPDATE discovery_jobs SET status=%s,attempts=attempts+1,
                 last_result=%s,next_attempt_at=%s WHERE job_id=%s""",
-                (state, result, now + timedelta(seconds=delay), str(job_id)))
+                (state, result, retry_at, str(job_id)))
+            self.last_result = result
             return state

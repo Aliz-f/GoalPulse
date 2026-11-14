@@ -28,3 +28,18 @@ export function formatTimestamp(iso: string, locale?: string): string {
   if (Number.isNaN(d.getTime())) return iso;
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(d);
 }
+
+/** Full UTC instant for hover text; preserves invalid input rather than inventing a time. */
+export function timestampTitle(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : `${d.toISOString()} (UTC)`;
+}
+
+/** RFC 3339 permits offsets, so compare parsed instants rather than timestamp strings. */
+export function newestTimestampFirst(a: string, b: string): number {
+  const aMs = Date.parse(a);
+  const bMs = Date.parse(b);
+  if (Number.isNaN(aMs)) return Number.isNaN(bMs) ? 0 : 1;
+  if (Number.isNaN(bMs)) return -1;
+  return bMs - aMs;
+}

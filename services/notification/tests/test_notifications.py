@@ -52,6 +52,18 @@ class MemoryStore:
     def in_app_enabled(self, user_id, *, lock=False):
         return self.enabled
 
+    def lock_goal_notifications(self, user_id, goal_id):
+        pass  # Serialized test double; real concurrency requires PostgreSQL.
+
+    def notification_exists(self, user_id, goal_id, version, fingerprint):
+        return (user_id, goal_id, version, fingerprint, 'in_app') in self.notifications
+
+    def last_notification_at(self, user_id, goal_id):
+        times = [datetime.fromisoformat(n['created_at'].replace('Z', '+00:00'))
+                 for n in self.notifications.values()
+                 if (n['user_id'], n['goal_id']) == (user_id, goal_id)]
+        return max(times) if times else None
+
     def insert_notification(self, note):
         if self.fail_insert:
             raise RuntimeError('insert failure')
@@ -311,8 +323,8 @@ def test_postgres_commit_and_rollback(failure):
     connection.close.assert_called_once()
 
 
-def test_fingerprint_matches_standalone_ge_golden_handoff(setup):
-    # Captured by running GE's own fingerprint function against these exact
+def test_legacy_fingerprint_matches_standalone_ge_golden_handoff(setup):
+    # Phase 1 compatibility: captured by running GE's own function against these exact
     # frozen fixtures and the explicit exact-model/any-condition fixture goal.
     # No GE private module is imported into Notification or its tests.
     s = setup

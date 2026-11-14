@@ -35,7 +35,8 @@ def load(name):
 
 class MemoryDB:
     def __init__(self):
-        self.data = dict(evaluations={}, fingerprints=set(), offers=set(), outbox={}, inbox=set(), offer_events={}, confirmed=set())
+        self.data = dict(evaluations={}, fingerprints=set(), offers=set(), outbox={}, inbox=set(),
+                         offer_events={}, confirmed=set(), evaluator_versions={})
         self.fail_commit = False
         self.fail_enqueue = False
 
@@ -62,6 +63,7 @@ class MemoryDB:
         if result['evaluation_id'] in self.data['evaluations']:
             raise ValueError('immutable ID collision')
         self.data['evaluations'][result['evaluation_id']] = copy.deepcopy(result)
+        self.data['evaluator_versions'][result['evaluation_id']] = version
         self.data['fingerprints'].add(fingerprint)
         return True
 
@@ -75,6 +77,14 @@ class MemoryDB:
         self.data['offer_events'][key] = event_id
         return True
 
+    def legacy_offer_reserved(self, result, fingerprint):
+        key = (result['goal_id'], result['goal_version'], fingerprint)
+        if key not in self.data['offers']:
+            return False
+        event_id = self.data['offer_events'].get(key)
+        return (key in self.data['confirmed'] or event_id is None
+                or self.data['outbox'][event_id]['status'] != 'failed')
+
     def enqueue_event(self, event):
         if self.fail_enqueue:
             raise RuntimeError('outbox insert failure')
@@ -83,6 +93,12 @@ class MemoryDB:
 
     def get_evaluation(self, evaluation_id):
         return copy.deepcopy(self.data['evaluations'].get(evaluation_id))
+
+    def list_evaluations(self, goal_id, goal_version, limit):
+        rows = [copy.deepcopy(result) for result in self.data['evaluations'].values()
+                if (result['goal_id'], result['goal_version']) == (goal_id, goal_version)]
+        rows.sort(key=lambda result: (result['evaluated_at'], result['evaluation_id']), reverse=True)
+        return rows[:limit]
 
     def next_pending(self, now):
         for event_id, row in sorted(self.data['outbox'].items()):

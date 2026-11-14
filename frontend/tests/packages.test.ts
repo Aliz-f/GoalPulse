@@ -63,14 +63,14 @@ describe("package presentation", () => {
   });
 });
 
-describe("mock notifications and packages (ICP-02 proposal)", () => {
+describe("mock notifications and sample packages", () => {
   it("feed links to a valid prepare-only package; mark-read is idempotent", async () => {
     const api = createMockApi({ delayMs: 0 });
     const feed = await api.listNotifications();
     assert.equal(feed.length, 2);
     assert.ok(feed[0].created_at > feed[1].created_at, "newest first");
     const fresh = feed.find((n) => !n.is_read)!;
-    const p = await api.getActionPackage(fresh.action_package_id!);
+    const p = await api.getActionPackage(api.packageIdFor(fresh.notification_id)!);
     assert.equal(p.auto_execute, false);
     assert.equal(p.approval_required, true);
     assert.equal(p.requires_checkout_revalidation, true);
@@ -83,7 +83,7 @@ describe("mock notifications and packages (ICP-02 proposal)", () => {
   it("expired package is 410 and unknown/foreign package is 404", async () => {
     const api = createMockApi({ delayMs: 0 });
     const old = (await api.listNotifications()).find((n) => n.is_read)!;
-    await assert.rejects(api.getActionPackage(old.action_package_id!), (e: ApiError) => e.status === 410);
+    await assert.rejects(api.getActionPackage(api.packageIdFor(old.notification_id)!), (e: ApiError) => e.status === 410);
     await assert.rejects(api.getActionPackage("someone-elses"), (e: ApiError) => e.status === 404);
     await assert.rejects(api.markNotificationRead("someone-elses"), (e: ApiError) => e.status === 404);
   });

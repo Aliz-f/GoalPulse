@@ -7,7 +7,7 @@ from typing import Callable, ContextManager, Protocol, Sequence, TypeVar
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from .contracts import Contracts, Document
-from .fingerprint import offer_fingerprint, public_url, same_offer_capture
+from .fingerprint import business_fingerprint, offer_fingerprint, public_url, same_offer_capture
 
 T = TypeVar('T')
 PRODUCT_CODES = {'identity_match', 'condition', 'availability', 'delivery', 'seller_policy',
@@ -54,6 +54,9 @@ class Transaction(Protocol):
     def claim_event(self, event_id: str) -> bool: ...
     def in_app_enabled(self, user_id: str, *, lock: bool = False) -> bool: ...
     def insert_notification(self, notification: Document) -> bool: ...
+    def lock_goal_notifications(self, user_id: str, goal_id: str) -> None: ...
+    def notification_exists(self, user_id: str, goal_id: str, version: int, fingerprint: str) -> bool: ...
+    def last_notification_at(self, user_id: str, goal_id: str) -> datetime | None: ...
 
 
 class Store(Protocol):
@@ -68,12 +71,15 @@ class NotificationConsumer:
     def __init__(self, contracts: Contracts, store: Store, goals: GoalReader,
                  evaluations: EvaluationReader, evidence: EvidenceReader,
                  clock: Callable[[], datetime], wait: Callable[[float], None] = sleep,
-                 read_attempts: int = 3):
+                 read_attempts: int = 3, rate_limit_minutes: int = 60):
         if type(read_attempts) is not int or not 1 <= read_attempts <= 5:
             raise ValueError('Read attempts must be between 1 and 5')
+        if type(rate_limit_minutes) is not int or not 60 <= rate_limit_minutes <= 1440:
+            raise ValueError('Notification rate limit must be between 60 and 1440 minutes')
         self.contracts, self.store, self.goals = contracts, store, goals
         self.evaluations, self.evidence, self.clock = evaluations, evidence, clock
         self.wait, self.read_attempts = wait, read_attempts
+        self.rate_limit_minutes = rate_limit_minutes
 
     def _read(self, read: Callable[[], T]) -> T:
         for attempt in range(self.read_attempts):
@@ -162,7 +168,8 @@ class NotificationConsumer:
                     seen[rid] = row
                 if oid in seen and seen[oid] != observation:
                     raise ValueError('Conflicting immutable observation')
-                seen[oid] = observation
+                # Current DE state is authoritative. Never re-insert a historic
+                # citation and let UUID ordering hide a current trust downgrade.
                 latest = max(seen.values(), key=lambda row: (
                     datetime.fromisoformat(row['observed_at'].replace('Z', '+00:00')), row['observation_id']))
                 if not same_offer_capture(observation, latest):
@@ -173,6 +180,9 @@ class NotificationConsumer:
             # Preference updates then serialize with creation of the in-app row.
             if not transaction.in_app_enabled(runtime.owner_user_id, lock=True):
                 return 'disabled'
+            # Serialize creation for this owner/goal, including different goal
+            # versions and different offers. Recheck runtime/time after waiting.
+            transaction.lock_goal_notifications(runtime.owner_user_id, gid)
             final = self._runtime(gid, correlation)
             if not final.active(gid, version) or final.owner_user_id != runtime.owner_user_id:
                 return 'suppressed'
@@ -182,10 +192,20 @@ class NotificationConsumer:
             if (goal['criteria']['delivery_country'] != 'FI' or
                 datetime.fromisoformat(result['evaluated_at'].replace('Z', '+00:00')) > now or
                 any(not timedelta(0) <= now - datetime.fromisoformat(o['observed_at'].replace('Z', '+00:00')) <=
-                    timedelta(minutes=goal['monitoring']['max_evidence_age_minutes'])
+                    timedelta(minutes=min(goal['monitoring']['max_evidence_age_minutes'], 10))
                     for o in observations + corroborating_captures)):
                 return 'suppressed'
-            fingerprint = offer_fingerprint(goal, observations)
+            fingerprint = business_fingerprint(goal, observations)
+            if transaction.notification_exists(runtime.owner_user_id, gid, version, fingerprint):
+                return 'deduplicated'
+            # Recognize the exact Phase 1 key during an audited upgrade. Do not
+            # rewrite an existing immutable record or guess missing old costs.
+            legacy = offer_fingerprint(goal, observations)
+            if legacy != fingerprint and transaction.notification_exists(runtime.owner_user_id, gid, version, legacy):
+                return 'deduplicated'
+            last_created = transaction.last_notification_at(runtime.owner_user_id, gid)
+            if last_created is not None and now - last_created < timedelta(minutes=self.rate_limit_minutes):
+                return 'rate_limited'
             note = dict(notification_id=str(uuid5(NAMESPACE_URL,
                         f'in_app:{runtime.owner_user_id}:{gid}:{version}:{fingerprint}')),
                         user_id=runtime.owner_user_id, goal_id=gid, goal_version=version,

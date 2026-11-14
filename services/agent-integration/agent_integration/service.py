@@ -7,7 +7,7 @@ from typing import Callable, ContextManager, Protocol, Sequence
 from uuid import UUID
 
 from .eligibility import Contracts, Document, Runtime
-from .fingerprint import offer_fingerprint, same_offer_capture
+from .fingerprint import business_fingerprint, offer_fingerprint, same_offer_capture
 from .packages import PackageBuilder, PackageContract
 
 
@@ -29,6 +29,7 @@ class Transaction(Protocol):
     def claim_event(self, event_id: str) -> bool: ...
     def insert_package(self, package: Document, owner: str, fingerprint: str, correlation: str) -> bool: ...
     def get_owned(self, package_id: str, owner: str) -> Document | None: ...
+    def has_offer(self, goal_id: str, version: int, fingerprint: str) -> bool: ...
 
 
 class Store(Protocol):
@@ -110,7 +111,9 @@ class PackageConsumer:
                     seen[rid] = row
                 if oid in seen and seen[oid] != observation:
                     raise ValueError('Immutable observation mismatch')
-                seen[oid] = observation
+                # The DE latest result is the current canonical snapshot. Do
+                # not replace a downgrade/changed offer with the older citation
+                # merely because the historical UUID sorts later.
                 latest = max(seen.values(), key=lambda o: (
                     datetime.fromisoformat(o['observed_at'].replace('Z', '+00:00')), o['observation_id']))
                 if not same_offer_capture(observation, latest):
@@ -127,8 +130,12 @@ class PackageConsumer:
             package = self.builder.build(event, goal, evaluation, observations, final, now)
             if package is None or utc(self.clock) >= datetime.fromisoformat(package['expires_at'].replace('Z', '+00:00')):
                 return 'suppressed'
+            fingerprint = business_fingerprint(goal, observations)
+            legacy = offer_fingerprint(goal, observations)
+            if legacy != fingerprint and transaction.has_offer(goal['goal_id'], goal['version'], legacy):
+                return 'deduplicated'
             return 'created' if transaction.insert_package(package, initial.owner_user_id,
-                offer_fingerprint(goal, observations), correlation) else 'deduplicated'
+                fingerprint, correlation) else 'deduplicated'
 
 
 @dataclass(frozen=True)
@@ -155,8 +162,12 @@ class PackageGone(Exception):
 
 
 class PackageReader:
-    def __init__(self, contract: PackageContract, store: Store, goals: Goals, clock: Callable[[], datetime]):
+    def __init__(self, contract: PackageContract, store: Store, goals: Goals, clock: Callable[[], datetime],
+                 evidence: Evidence | None = None, contracts: Contracts | None = None):
+        if evidence is not None and contracts is None:
+            raise ValueError('Evidence-backed reads require the frozen contracts')
         self.contract, self.store, self.goals, self.clock = contract, store, goals, clock
+        self.evidence, self.contracts = evidence, contracts
 
     def get(self, package_id: str, principal: Principal, correlation_id: str) -> Document:
         if not isinstance(principal, Principal):
@@ -176,4 +187,61 @@ class PackageReader:
         if (runtime.lifecycle != 'active' or runtime.current_version != package['goal_version'] or
             utc(self.clock) >= datetime.fromisoformat(package['expires_at'].replace('Z', '+00:00'))):
             raise PackageGone()
+        if self.evidence is not None:
+            goal = self.goals.version(package['goal_id'], package['goal_version'], correlation_id)
+            self.contracts.validate('goal-spec', goal)
+            if (goal['goal_id'], goal['version'], goal['owner_user_id']) != (
+                    package['goal_id'], package['goal_version'], principal.subject):
+                raise PackageNotFound()
+            age_limit = goal['monitoring']['max_evidence_age_minutes']
+            if goal['goal_type'] == 'product_purchase':
+                age_limit = min(age_limit, 30)
+            deadlines = []
+            # Runtime composition always supplies the authenticated DE reader.
+            # Preserve the immutable original citation; never replace it with a
+            # newer capture to renew the package's lifetime.
+            for order in package['seller_orders']:
+                for item in order['items']:
+                    observation = self.evidence.get(item['observation_id'], correlation_id)
+                    self.contracts.validate('observation', observation)
+                    expected = dict(observation_id=item['observation_id'], source_url=item['source_url'],
+                        observed_at=item['observed_at'], product_name=item['item_name'], selling_unit=item['unit'],
+                        unit_price_eur_cents=item['unit_price_eur_cents'], tax_eur_cents=item['additional_tax_eur_cents'],
+                        shipping_eur_cents=order['shipping_eur_cents'], availability='in_stock', delivery_to_fi='yes')
+                    if any(observation.get(key) != value for key, value in expected.items()):
+                        raise PackageGone()
+                    if any(type(observation[key]) is not int for key in (
+                            'unit_price_eur_cents', 'shipping_eur_cents', 'tax_eur_cents')):
+                        raise PackageGone()
+                    deadlines.append(datetime.fromisoformat(observation['observed_at'].replace('Z', '+00:00'))
+                                     + timedelta(minutes=age_limit))
+                    rows = self.evidence.latest(observation['source_id'], correlation_id)
+                    if not rows or len(rows) > 1000:
+                        raise PackageGone()
+                    seen = {}
+                    for row in rows:
+                        self.contracts.validate('observation', row)
+                        if row['source_id'] != observation['source_id']:
+                            raise PackageGone()
+                        if any(type(row[key]) is not int for key in (
+                                'unit_price_eur_cents', 'shipping_eur_cents', 'tax_eur_cents')):
+                            raise PackageGone()
+                        oid = row['observation_id']
+                        if oid in seen and seen[oid] != row:
+                            raise PackageGone()
+                        seen[oid] = row
+                    if item['observation_id'] in seen and seen[item['observation_id']] != observation:
+                        raise PackageGone()
+                    latest = max(rows, key=lambda row: (
+                        datetime.fromisoformat(row['observed_at'].replace('Z', '+00:00')), row['observation_id']))
+                    now = utc(self.clock)
+                    latest_observed = datetime.fromisoformat(latest['observed_at'].replace('Z', '+00:00'))
+                    if (not same_offer_capture(observation, latest)
+                            or not timedelta(0) <= now - latest_observed < timedelta(minutes=age_limit)):
+                        raise PackageGone()
+                    deadlines.append(latest_observed + timedelta(minutes=age_limit))
+            final = self.goals.runtime(package['goal_id'], correlation_id)
+            expires = datetime.fromisoformat(package['expires_at'].replace('Z', '+00:00'))
+            if final != runtime or expires > min(deadlines) or utc(self.clock) >= min(expires, min(deadlines)):
+                raise PackageGone()
         return copy.deepcopy(package)

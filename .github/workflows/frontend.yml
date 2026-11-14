@@ -27,32 +27,59 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: frontend/.nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
-      - run: npm run build
+      # Every step fails the job on a non-zero exit; nothing is skipped or allowed to fail.
+      - name: Demo build refuses the mock and missing settings (R2-D2-02)
         env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          if NEXT_PUBLIC_GOALPULSE_PROFILE=demo NEXT_PUBLIC_API_MODE=mock npm run build > refuse-mock.log 2>&1; then
+            echo "demo + mock built, but it must be refused"; exit 1
+          fi
+          grep -q "profile 'demo' requires NEXT_PUBLIC_API_MODE=gateway" refuse-mock.log
+          if npm run build > refuse-unset.log 2>&1; then
+            echo "a build with no runtime settings succeeded, but it must be refused"; exit 1
+          fi
+          grep -q "NEXT_PUBLIC_API_MODE must be mock or gateway" refuse-unset.log
+      - name: Production build (demo profile, real gateway path)
+        run: npm run build && node scripts/check-bundle.mjs
+        env:
+          NEXT_PUBLIC_GOALPULSE_PROFILE: demo
+          NEXT_PUBLIC_API_MODE: gateway
+          NEXT_PUBLIC_GATEWAY_URL: http://localhost:8000
+          NEXT_TELEMETRY_DISABLED: "1"
+      - name: Production build (mock lane, labelled in the UI)
+        run: npm run build && node scripts/check-bundle.mjs
+        env:
+          NEXT_PUBLIC_GOALPULSE_PROFILE: test
           NEXT_PUBLIC_API_MODE: mock
           NEXT_TELEMETRY_DISABLED: "1"
 
   e2e:
-    name: Playwright (mock mode)
+    name: Playwright (mock lane + gateway lane)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: frontend/.nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
+        env:
+          CI: "true"
+          NEXT_TELEMETRY_DISABLED: "1"
+      - name: Gateway lane (demo profile, cookie sign-in; contract stub until R2-D1-01)
+        run: npm run e2e:gateway
         env:
           CI: "true"
           NEXT_TELEMETRY_DISABLED: "1"
@@ -62,5 +89,6 @@ jobs:
           name: playwright-report
           path: |
             frontend/playwright-report/
+            frontend/playwright-report-gateway/
             frontend/test-results/
           retention-days: 7

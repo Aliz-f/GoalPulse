@@ -13,6 +13,7 @@ import httpx
 
 from fake_evidence_repository import MemoryRepository
 from goalpulse_evidence.api import create_app
+from goalpulse_evidence.checking import EvidenceChecker
 from goalpulse_evidence.ledger import EvidenceLedger
 
 
@@ -45,6 +46,20 @@ class Reads:
 
     def by_source(self, source_id, *, limit):
         return [self.item] if self.item and self.item["source_id"] == str(source_id) else []
+
+
+class MemoryProofStore:
+    def __init__(self):
+        self.proof = None
+        self.attempt_id = None
+
+    def put(self, attempt_id, _source_id, proof):
+        if self.attempt_id is not None and self.attempt_id != attempt_id:
+            raise ValueError("proof identity changed")
+        self.attempt_id, self.proof = attempt_id, proof
+
+    def load(self, _observation_id):
+        return self.proof
 
 
 def payload():
@@ -145,3 +160,72 @@ def test_malformed_extraction_uses_contract_400(monkeypatch):
     response = request(app, "POST", "/internal/v1/extractions", body=body,
                        headers={"Authorization": token("de.extractions.write")})
     assert response.status_code == 400
+
+
+def test_proof_submission_persists_unverified_input_then_derives_checked_snapshot(monkeypatch):
+    monkeypatch.setenv("SERVICE_JWT_SECRET", "test-secret")
+    monkeypatch.setenv("SERVICE_JWT_ISSUER", "goalpulse-tests")
+    monkeypatch.setenv("SERVICE_JWT_AUDIENCE", "goalpulse-internal")
+    repository, reads, proofs = MemoryRepository(), Reads(), MemoryProofStore()
+    ledger = EvidenceLedger(repository, schema_directory=ROOT / "contracts/schemas", clock=lambda: NOW)
+    checker = EvidenceChecker(ledger, proofs, merchant_hosts=frozenset({"shop.example"}), profile="demo")
+    app = create_app(ledger, reads, profile="demo", checker=checker, proof_store=proofs)
+    extraction = payload()
+    extraction.update(
+        source_url="https://shop.example/products/model-128",
+        provider="context_dev", extraction_method="scrape", provider_request_id="context-request-1",
+    )
+    extraction["extracted"].update(
+        product_name="Synthetic item", model="MODEL-128", unit_price_eur_cents=1000,
+        availability="in_stock", evidence_reliability="unverified",
+        source_capture_url="https://shop.example/products/model-128",
+    )
+    product = {
+        "@context": "https://schema.org", "@type": "Product",
+        "url": extraction["source_url"], "name": "Synthetic item", "model": "MODEL-128",
+        "offers": {
+            "@type": "Offer", "url": extraction["source_url"], "price": "10.00",
+            "priceCurrency": "EUR", "availability": "https://schema.org/InStock",
+            "itemCondition": "https://schema.org/NewCondition",
+            "seller": {"@type": "Organization", "url": "https://shop.example/"},
+        },
+    }
+    body = {"extraction": extraction, "proof": {
+        "seller_representation": json.dumps(product),
+        "resolved_addresses": ["93.184.216.34"],
+        "access_policy_ids": ["pol_demo_allowlist"],
+    }}
+    response = request(
+        app, "POST", "/internal/v2/extractions/with-proof", body=body,
+        headers={"Authorization": token("de.evidence-proof.write")},
+    )
+    assert response.status_code == 200
+    receipt = response.json()
+    assert receipt["accepted"] is True and receipt["reliability"] == "checked"
+    assert receipt["observation_id"] != receipt["checked_observation_id"]
+    observations = list(repository.state["observations"].values())
+    assert sorted(row["evidence"]["reliability"] for row in observations) == ["checked", "unverified"]
+    assert len(repository.state["outbox"]) == 2
+
+
+def test_proof_submission_rejects_private_capture_address_before_persistence(monkeypatch):
+    monkeypatch.setenv("SERVICE_JWT_SECRET", "test-secret")
+    monkeypatch.setenv("SERVICE_JWT_ISSUER", "goalpulse-tests")
+    monkeypatch.setenv("SERVICE_JWT_AUDIENCE", "goalpulse-internal")
+    repository, proofs = MemoryRepository(), MemoryProofStore()
+    ledger = EvidenceLedger(repository, schema_directory=ROOT / "contracts/schemas", clock=lambda: NOW)
+    app = create_app(
+        ledger, Reads(), profile="demo",
+        checker=EvidenceChecker(ledger, proofs, merchant_hosts=frozenset({"shop.example"}), profile="demo"),
+        proof_store=proofs,
+    )
+    extraction = payload()
+    extraction.update(provider="context_dev", extraction_method="scrape")
+    extraction["extracted"]["evidence_reliability"] = "unverified"
+    response = request(app, "POST", "/internal/v2/extractions/with-proof", body={
+        "extraction": extraction,
+        "proof": {"seller_representation": "{}", "resolved_addresses": ["127.0.0.1"],
+                  "access_policy_ids": ["pol_demo_allowlist"]},
+    }, headers={"Authorization": token("de.evidence-proof.write")})
+    assert response.status_code == 400
+    assert all(not rows for rows in repository.state.values())

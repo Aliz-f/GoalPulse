@@ -9,14 +9,14 @@ fixtures and injected adapters; they do not establish live integration.
 | Model and seller checks | Exact matching, attributes, hostname policy and injected-text tests | New condition/arbitrary attributes await ICP-13; unsupported equivalence is unknown |
 | Money/quantity correctness | Integer representation, large cents, equality/one-cent-over, over-budget lower bounds; D4-GE-05 adds fixture-confirmed fractional basket rounding | Live packaging/tax semantics await D3 confirmation |
 | Freshness/cache time | Offset/boundary/future timestamps, stale event time, slow runtime read | DE must preserve original capture time |
-| Stale/paused/terminal/owner mismatch | Initial/final processing, enqueue and publication guards | Concrete D4 client/auth wiring to accepted ICP-01/08 remains pending |
+| Stale/paused/terminal/owner mismatch | Initial/final processing, enqueue and publication guards | D1 private auth/deployment binding remains pending |
 | Source fan-out | Two goals, duplicate subscriptions, full rollback | Live DM pagination/linkage remain upstream work |
-| Malformed evidence | Goal/source/observation identity, snapshot conflicts and invalid facts | Authenticated HTTP adapters unimplemented |
-| Bounded failures | Transient reads, exhausted retry, permission/schema no retry | Actual HTTP 429/5xx mapping and deadlines await approved adapters |
+| Malformed evidence | Goal/source/observation identity, snapshot conflicts and invalid facts | Live upstream integration remains unproven |
+| Bounded failures | Transient reads, exhausted retry, permission/schema no retry | HTTP 429/5xx mapping and deadlines are implemented; deployment budgets remain unproven |
 | Deduplication | Input replay, same-offer captures, formatting normalization, price/version changes | Real PostgreSQL concurrency NOT RUN |
 | Atomic persistence | Full processor-consumer-sink flow; enqueue/commit failure rollback | PostgreSQL migrations and immutable trigger enforcement NOT RUN |
 | Outbox recovery | Stable-ID replay, confirm loss, broker outage, retry timing and confirm-then-commit failure | Actual RabbitMQ restart/durability/concurrent workers NOT RUN |
-| Immutable reads | Detached copy, missing ID, wrong returned ID rejection | Accepted M2M evaluation HTTP operation and service-auth wiring remain unimplemented |
+| Immutable reads | Detached copy, missing ID, wrong returned ID rejection, internal and owner-history handlers | D1 Gateway/service-auth deployment binding remains pending |
 
 ## Fixes established by failing regression tests
 
@@ -29,11 +29,12 @@ fixtures and injected adapters; they do not establish live integration.
 5. Known nonnegative payable components above the cap mean unsatisfied. Missing
    charges remain unknown and are never fabricated as zero.
 
-Product evaluator implementation version is `product-v1.2` for reproducibility,
-not a contract version. This task adds no contracts, events, dependencies,
-migrations or environment variables. If fingerprints have already been stored
-outside this unintegrated checkout, coordinate deployment of the normalization
-change; this code does not rewrite existing records.
+Product evaluator implementation version is `product-v1.3-phase2` for
+reproducibility, not a contract version. Frozen contracts/events remain unchanged;
+the current Phase 2 runtime uses owned migrations 001..004 and declared service
+dependencies. If fingerprints have already been stored outside this unintegrated
+checkout, coordinate deployment of the normalization change; this code does not
+rewrite existing records.
 
 ## Verification and remaining gates
 
@@ -54,9 +55,9 @@ collection. The process-local workaround used in the temporary dev environment:
 
 D4-GE-06 product/mock coverage and D4-GE-05 fixture basket coverage do not
 complete operational acceptance or live procurement evidence gates.
-D1/D3 must supply approved APIs, service authentication, database driver/credentials
-and a RabbitMQ adapter/topology. Apply both owned-DB migrations and run the
-database/broker fault scenarios in that environment. Notification/package
+D1/D3 must supply the live upstream bindings, D1 service authentication,
+database credentials and RabbitMQ topology/supervision. Apply owned migrations
+001..004 and run the database/broker fault scenarios in that environment. Notification/package
 deduplication, user HTTP ownership and non-purchase tests belong to their later
 tasks and are not claimed as passing here.
 

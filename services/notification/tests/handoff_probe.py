@@ -44,6 +44,18 @@ class Store:
     def in_app_enabled(self, user_id, *, lock=False):
         return True
 
+    def lock_goal_notifications(self, user_id, goal_id):
+        pass
+
+    def notification_exists(self, user_id, goal_id, version, fingerprint):
+        return (user_id, goal_id, version, fingerprint) in self.notes
+
+    def last_notification_at(self, user_id, goal_id):
+        times = [datetime.fromisoformat(n['created_at'].replace('Z', '+00:00'))
+                 for n in self.notes.values()
+                 if (n['user_id'], n['goal_id']) == (user_id, goal_id)]
+        return max(times) if times else None
+
     def insert_notification(self, note):
         key = (note['user_id'], note['goal_id'], note['goal_version'], note['offer_fingerprint'])
         if key in self.notes:
