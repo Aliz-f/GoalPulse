@@ -83,7 +83,7 @@ migration reruns, concurrent deduplication, immutable row triggers and rollback
 after a staged observation write fails. A configured integration run fails if its
 driver is missing. No service is started or network port exposed by this task.
 
-See [Developer 3 handoff](reports/DEVELOPER-3-HANDOFF.md) for task status and blockers.
+See [Developer 3 current status](reports/DEVELOPER-3-CURRENT-STATUS.md) for task status and blockers.
 
 ## D3-DE-02..05 private components
 

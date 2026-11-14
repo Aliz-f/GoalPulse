@@ -89,7 +89,7 @@ From repository root with `.venv/Scripts/python.exe` (Python 3.13.5):
 | Command | Result |
 |---|---|
 | `scripts/validate_contracts.py` | PASS: 5 schemas, 11 examples, 4 event routes, Gateway OpenAPI. |
-| `-m pytest -q` | **179 passed, 7 skipped**. |
+| `-m pytest -q` | **182 passed, 7 skipped**. |
 | `-m compileall -q services/discovery-monitoring/goalpulse_discovery services/data-evidence/goalpulse_evidence` | PASS. |
 | `git diff --check` | PASS. |
 
