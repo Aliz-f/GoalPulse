@@ -4,6 +4,8 @@ Next.js 16 app for **D2-FE-01** (app shell + typed API client), **D2-FE-02** (co
 
 ## Run
 
+Requires **Node 22** (`frontend/.nvmrc`, ADR-0003 MVP-02). Every npm script first runs `scripts/check-node.mjs`, which stops with install instructions on another major version; reinstall with `npm ci` after switching. `npm run e2e` starts its own `next dev` on :3100 with a separate build folder (`.next-e2e`), so it works while `npm run dev` is running.
+
 ```bash
 cd frontend
 npm install

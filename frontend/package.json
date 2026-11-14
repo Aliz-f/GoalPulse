@@ -2,14 +2,23 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.6 <23"
+  },
   "scripts": {
+    "predev": "node scripts/check-node.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/check-node.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "pretypecheck": "node scripts/check-node.mjs",
     "typecheck": "next typegen && tsc --noEmit",
+    "pretest": "node scripts/check-node.mjs",
     "test": "node --experimental-strip-types --no-warnings --test tests/*.test.ts",
+    "pree2e": "node scripts/check-node.mjs",
     "e2e": "playwright test --project=chromium",
+    "predemo": "node scripts/check-node.mjs",
     "demo": "playwright test --project=demo --reporter=list && node e2e/collect-demo.mjs"
   },
   "dependencies": {
