@@ -16,6 +16,10 @@ export function AppHeader() {
       <Link href="/" className="brand">
         GoalPulse
       </Link>
+      <nav className="nav" aria-label="Main">
+        <Link href="/">New goal</Link>
+        <Link href="/goals">My goals</Link>
+      </nav>
       {API_MODE === "mock" ? (
         <span className="badge badge-mock" title="Responses are recorded from the Goal Intelligence service; your text is not interpreted.">
           Mock mode · scripted replies

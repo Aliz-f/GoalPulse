@@ -1,12 +1,15 @@
-import type { GoalDraft, GoalSpec } from "../contracts.ts";
+import type { GoalDraft, GoalSpec, GoalSummary, Lifecycle, LifecycleAction } from "../contracts.ts";
 
-/** The four frozen gateway operations the goal wizard needs. */
+/** The seven frozen public gateway operations (contracts/openapi/gateway.v1.yaml). */
 export interface GoalPulseApi {
   readonly mode: "mock" | "gateway";
   createSession(initialMessage: string): Promise<GoalDraft>;
   sendMessage(sessionId: string, message: string, expectedRevision: number): Promise<GoalDraft>;
   getSession(sessionId: string): Promise<GoalDraft>;
   confirm(sessionId: string, expectedRevision: number): Promise<GoalSpec>;
+  listGoals(status?: Lifecycle): Promise<GoalSummary[]>;
+  getGoal(goalId: string): Promise<GoalSpec>;
+  updateLifecycle(goalId: string, action: LifecycleAction): Promise<void>;
 }
 
 /** Extra controls that only exist in mock mode (demo + manual testing). */

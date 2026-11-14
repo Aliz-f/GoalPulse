@@ -2,7 +2,7 @@ import type { CandidateSummary } from "@/lib/summary";
 
 const SOURCE_LABEL = { you: "From you", proposed: "Proposed default", fixed: "Always" } as const;
 
-export function DraftSummary({ summary, revision }: { summary: CandidateSummary; revision: number }) {
+export function DraftSummary({ summary, badge }: { summary: CandidateSummary; badge: string }) {
   if (!summary.goalType) {
     return (
       <section className="card summary" aria-label="Draft summary">
@@ -12,10 +12,10 @@ export function DraftSummary({ summary, revision }: { summary: CandidateSummary;
     );
   }
   return (
-    <section className="card summary" aria-label={`Draft summary, revision ${revision}`}>
+    <section className="card summary" aria-label={`Summary, ${badge}`}>
       <div className="summary-head">
         <h2>{summary.title ?? "Draft"}</h2>
-        <span className="badge">Revision {revision}</span>
+        <span className="badge">{badge}</span>
       </div>
 
       {summary.items.length > 0 && (

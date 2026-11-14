@@ -231,7 +231,7 @@ export function SessionView() {
         )}
       </section>
 
-      <DraftSummary summary={summary} revision={draft.revision} />
+      <DraftSummary summary={summary} badge={`Revision ${draft.revision}`} />
     </div>
   );
 }
@@ -247,8 +247,11 @@ function Confirmed({ goal }: { goal: GoalSpec }) {
         GoalPulse will check offers and tell you when one is verified. Nothing has been bought — when an offer is
         found you&apos;ll get the details to complete the purchase yourself.
       </p>
-      <p className="hint">Goal ID: {goal.goal_id}</p>
-      <Link href="/">Start another goal</Link>
+      <p className="actions actions-start">
+        <Link href={`/goals/${goal.goal_id}`}>View this goal</Link>
+        <Link href="/goals">My goals</Link>
+        <Link href="/">Start another goal</Link>
+      </p>
     </section>
   );
 }

@@ -1,4 +1,5 @@
-import type { GoalDraft, GoalSpec } from "../contracts.ts";
+import type { GoalDraft, GoalSpec, GoalSummary, Lifecycle, LifecycleAction } from "../contracts.ts";
+import { lifecycleAfter } from "../goals.ts";
 import { ApiError } from "./errors.ts";
 import { MOCK_SCRIPTS, type MockScript } from "./mock-scripts.ts";
 import type { GoalPulseApi, MockControls } from "./types.ts";
@@ -21,6 +22,35 @@ export interface MockOptions {
   delayMs?: number;
   newId?: () => string;
   now?: () => Date;
+  /** Start with two sample goals (one verified, one lacking evidence). Default true. */
+  seedGoals?: boolean;
+}
+
+interface MockGoal {
+  spec: GoalSpec;
+  summary: GoalSummary;
+  createdAt: number;
+}
+
+type CandidateParts = Omit<GoalSpec, "goal_id" | "owner_user_id" | "version" | "approved_at">;
+
+function specFrom(candidate: CandidateParts, goalId: string, approvedAt: Date): GoalSpec {
+  return {
+    goal_id: goalId,
+    owner_user_id: MOCK_USER,
+    version: 1,
+    title: candidate.title,
+    goal_type: candidate.goal_type,
+    criteria: candidate.criteria,
+    monitoring: candidate.monitoring,
+    actions: { notify_user: candidate.actions.notify_user, agent_handoff: "prepare_only", auto_purchase: false },
+    approved_at: approvedAt.toISOString().replace(/\.\d{3}Z$/, "Z"),
+  };
+}
+
+function readyCandidate(name: MockScript["name"]): CandidateParts {
+  const script = MOCK_SCRIPTS.find((s) => s.name === name)!;
+  return structuredClone(script.steps[script.steps.length - 1].draft.candidate_goal) as unknown as CandidateParts;
 }
 
 export function pickScript(initialMessage: string): MockScript {
@@ -35,9 +65,45 @@ export function pickScript(initialMessage: string): MockScript {
 
 export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockControls {
   const sessions = new Map<string, MockSession>();
+  const goals = new Map<string, MockGoal>();
   const delay = opts.delayMs ?? 350;
   const newId = opts.newId ?? (() => crypto.randomUUID());
   const now = opts.now ?? (() => new Date());
+
+  function addGoal(spec: GoalSpec, summary: Partial<GoalSummary>, createdAt: number) {
+    goals.set(spec.goal_id, {
+      spec,
+      createdAt,
+      summary: {
+        goal_id: spec.goal_id,
+        title: spec.title,
+        version: spec.version,
+        lifecycle: "active",
+        opportunity_status: "unknown",
+        last_evaluated_at: null,
+        ...summary,
+      },
+    });
+  }
+
+  if (opts.seedGoals ?? true) {
+    const t = now().getTime();
+    const iso = (msAgo: number) => new Date(t - msAgo).toISOString().replace(/\.\d{3}Z$/, "Z");
+    addGoal(specFrom(readyCandidate("product"), newId(), new Date(t - 86_400_000)), {
+      opportunity_status: "verified",
+      last_evaluated_at: iso(25 * 60_000),
+    }, t - 86_400_000);
+    addGoal(specFrom(readyCandidate("procurement"), newId(), new Date(t - 2 * 86_400_000)), {
+      opportunity_status: "unknown",
+      last_evaluated_at: iso(3 * 3_600_000),
+    }, t - 2 * 86_400_000);
+  }
+
+  function findGoal(id: string): MockGoal {
+    const g = goals.get(id);
+    if (!g) throw new ApiError(404, "not_found", "goal not found");
+    return g;
+  }
 
   const wait = () => (delay > 0 ? new Promise((r) => setTimeout(r, delay)) : Promise.resolve());
 
@@ -97,22 +163,33 @@ export function createMockApi(opts: MockOptions = {}): GoalPulseApi & MockContro
       if (s.revision !== expectedRevision || s.state !== "ready_for_confirmation") {
         throw new ApiError(409, "conflict", "draft incomplete, stale, or already confirmed", s.revision);
       }
-      const candidate = structuredClone(s.script.steps[s.step].draft.candidate_goal) as Omit<
-        GoalSpec,
-        "goal_id" | "owner_user_id" | "version" | "approved_at"
-      >;
+      const candidate = structuredClone(s.script.steps[s.step].draft.candidate_goal) as unknown as CandidateParts;
       s.state = "confirmed";
-      return {
-        goal_id: newId(),
-        owner_user_id: MOCK_USER,
-        version: 1,
-        title: candidate.title,
-        goal_type: candidate.goal_type,
-        criteria: candidate.criteria,
-        monitoring: candidate.monitoring,
-        actions: { notify_user: candidate.actions.notify_user, agent_handoff: "prepare_only", auto_purchase: false },
-        approved_at: now().toISOString().replace(/\.\d{3}Z$/, "Z"),
-      };
+      const created = now();
+      const spec = specFrom(candidate, newId(), created);
+      addGoal(spec, {}, created.getTime());
+      return structuredClone(spec);
+    },
+
+    async listGoals(status?: Lifecycle) {
+      await wait();
+      return [...goals.values()]
+        .filter((g) => !status || g.summary.lifecycle === status)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map((g) => ({ ...g.summary }));
+    },
+
+    async getGoal(goalId) {
+      await wait();
+      return structuredClone(findGoal(goalId).spec);
+    },
+
+    async updateLifecycle(goalId, action: LifecycleAction) {
+      await wait();
+      const g = findGoal(goalId);
+      const next = lifecycleAfter(g.summary.lifecycle, action);
+      if (!next) throw new ApiError(409, "conflict", `can't ${action} a ${g.summary.lifecycle} goal`);
+      g.summary.lifecycle = next;
     },
 
     suggestedReply(sessionId) {

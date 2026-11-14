@@ -43,12 +43,15 @@ export interface ErrorAdvice {
 }
 
 /** One place that decides what the UI says and does for each failure. */
-export function adviceFor(err: unknown, action: "send" | "confirm" | "load" | "create"): ErrorAdvice {
+export function adviceFor(err: unknown, action: "send" | "confirm" | "load" | "create" | "lifecycle"): ErrorAdvice {
   if (!(err instanceof ApiError)) {
     return { message: "Something went wrong. Nothing was changed; please try again.", keepInput: true, reload: false };
   }
   switch (err.kind) {
     case "conflict":
+      if (action === "lifecycle") {
+        return { message: "That change isn't possible from the goal's current state. We reloaded it.", keepInput: false, reload: true };
+      }
       if (action === "confirm") {
         return {
           message:
@@ -67,7 +70,11 @@ export function adviceFor(err: unknown, action: "send" | "confirm" | "load" | "c
       return { message: "You're not signed in, or your session expired. Sign in and try again.", keepInput: true, reload: false };
     case "forbidden":
     case "not_found":
-      return { message: "This goal draft doesn't exist or isn't yours.", keepInput: false, reload: false };
+      return {
+        message: action === "lifecycle" || action === "load" ? "This doesn't exist or isn't yours." : "This goal draft doesn't exist or isn't yours.",
+        keepInput: false,
+        reload: false,
+      };
     case "invalid":
       return { message: err.message || "That message couldn't be accepted. Please shorten or rephrase it.", keepInput: true, reload: false };
     case "unavailable":

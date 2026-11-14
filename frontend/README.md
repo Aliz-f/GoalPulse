@@ -1,6 +1,6 @@
 # GoalPulse frontend (Developer 2)
 
-Next.js 16 app for **D2-FE-01** (app shell + typed API client) and **D2-FE-02** (conversational goal wizard + exact-revision confirmation). Owned path: `frontend/`.
+Next.js 16 app for **D2-FE-01** (app shell + typed API client), **D2-FE-02** (conversational goal wizard + exact-revision confirmation) and **D2-FE-03** (My Goals). Owned path: `frontend/`.
 
 ## Run
 
@@ -27,6 +27,8 @@ Only `NEXT_PUBLIC_*` values reach the browser, and they hold no secrets. The fro
 
 - `/`: describe a goal (with examples) and start a session (`POST /v1/goal-sessions`).
 - `/sessions/[sessionId]`: conversation with one clarifying question at a time, "still needed" fields, and a live draft summary marking each value as from you, proposed default, or always (no automatic buying). When `ready_for_confirmation`, a **Review and confirm** panel confirms exactly the shown revision (`POST …/confirm` with `{expected_revision, approved: true}`).
+- `/goals` (D2-FE-03): your goals as cards (filter by lifecycle), each with the frozen `GoalSummary` status and how long ago it was checked. Wording keeps "Not enough evidence" distinct from success, and "Verified offer found" says nothing was bought. No progress percentages or condition breakdowns (those need ICP-02).
+- `/goals/[goalId]`: the approved GoalSpec, status, and Pause / Resume / Mark as done / Cancel (`PATCH /v1/goals/{id}/lifecycle`). Ending actions need a second click; the goal is re-read after every action.
 - **Stale revision (409):** the latest draft is reloaded, a warning explains what happened, and the typed message stays in the box. Confirm is not offered for incomplete or unsupported drafts.
 
 ## Code map
@@ -39,10 +41,12 @@ Only `NEXT_PUBLIC_*` values reach the browser, and they hold no secrets. The fro
 | `src/lib/api/errors.ts` | `ApiError` + one place deciding message / keep input / reload per failure |
 | `src/lib/summary.ts` | Defensive rendering of the untrusted `candidate_goal` (absent → "Not set yet") |
 | `src/lib/auth.ts` | Interim token store (ICP-08 pending) |
-| `src/components/` | `AppHeader`, `NewGoalForm`, `SessionView`, `DraftSummary` |
+| `src/lib/goals.ts` | Status/lifecycle wording, transition matrix, freshness text |
+| `src/components/` | `AppHeader`, `NewGoalForm`, `SessionView`, `DraftSummary`, `GoalsList`, `GoalDetail`, `GoalStatus` |
 
 ## Not done yet
 
-- D2-FE-03 (My Goals) and D2-FE-04 (notifications / agent package) are next. FE-04 needs the ICP-02 public endpoints approved.
+- D2-FE-04 (notifications / agent package) needs the ICP-02 public endpoints approved first.
+- Mock mode seeds two sample goals (one verified, one lacking evidence) so every status style is visible; disable with `createMockApi({ seedGoals: false })`.
 - Browser end-to-end tests: Playwright isn't installed in the repo yet.
 - Real sign-in once ICP-08 is decided.

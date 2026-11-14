@@ -64,3 +64,19 @@ export interface ConfirmRequest {
   expected_revision: number;
   approved: true;
 }
+
+// ---- Goal Management (frozen gateway.v1.yaml: /v1/goals*)
+
+export type Lifecycle = "active" | "paused" | "completed" | "cancelled";
+export type OpportunityStatus = "not_found" | "candidate" | "verified" | "unknown";
+export type LifecycleAction = "pause" | "resume" | "cancel" | "complete";
+
+/** components.schemas.GoalSummary — the only per-goal status the frozen API exposes. */
+export interface GoalSummary {
+  goal_id: string;
+  title: string;
+  version: number;
+  lifecycle: Lifecycle;
+  opportunity_status: OpportunityStatus;
+  last_evaluated_at?: string | null;
+}

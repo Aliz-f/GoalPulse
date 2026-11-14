@@ -1,4 +1,4 @@
-import type { ConfirmRequest, GoalDraft, GoalSpec } from "../contracts.ts";
+import type { ConfirmRequest, GoalDraft, GoalSpec, GoalSummary } from "../contracts.ts";
 import { ApiError, kindForStatus } from "./errors.ts";
 import type { GoalPulseApi } from "./types.ts";
 
@@ -27,7 +27,7 @@ export function createGatewayApi(opts: GatewayOptions): GoalPulseApi {
   const doFetch: FetchLike = opts.fetchImpl ?? ((input, init) => fetch(input, init));
   const correlationId = opts.newCorrelationId ?? (() => crypto.randomUUID());
 
-  async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  async function call<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
     const token = opts.getToken();
     if (!token) throw new ApiError(401, "not_signed_in", "not signed in");
     const headers: Record<string, string> = {
@@ -50,6 +50,7 @@ export function createGatewayApi(opts: GatewayOptions): GoalPulseApi {
       throw new ApiError(0, "network", "network error");
     }
 
+    if (res.status === 204) return undefined as T;
     if (res.ok) return (await res.json()) as T;
 
     let detail: { message?: unknown; current_revision?: unknown } = {};
@@ -64,6 +65,7 @@ export function createGatewayApi(opts: GatewayOptions): GoalPulseApi {
   }
 
   const session = (id: string) => `/v1/goal-sessions/${encodeURIComponent(id)}`;
+  const goal = (id: string) => `/v1/goals/${encodeURIComponent(id)}`;
 
   return {
     mode: "gateway",
@@ -76,5 +78,8 @@ export function createGatewayApi(opts: GatewayOptions): GoalPulseApi {
       const body: ConfirmRequest = { expected_revision: expectedRevision, approved: true };
       return call<GoalSpec>("POST", `${session(sessionId)}/confirm`, body);
     },
+    listGoals: (status) => call<GoalSummary[]>("GET", status ? `/v1/goals?status=${encodeURIComponent(status)}` : "/v1/goals"),
+    getGoal: (goalId) => call<GoalSpec>("GET", goal(goalId)),
+    updateLifecycle: (goalId, action) => call<void>("PATCH", `${goal(goalId)}/lifecycle`, { action }),
   };
 }
