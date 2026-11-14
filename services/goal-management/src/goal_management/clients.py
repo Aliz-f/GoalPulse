@@ -62,3 +62,34 @@ class GoalIntelligenceClient:
         if not isinstance(payload, dict):
             raise CandidateUnavailable("Goal Intelligence returned a non-object candidate")
         return payload
+
+    async def mark_confirmed(
+        self,
+        session_id: uuid.UUID,
+        goal_id: uuid.UUID,
+        expected_revision: int,
+        correlation_id: uuid.UUID,
+    ) -> None:
+        """Best-effort post-commit UX mark; GM remains authoritative."""
+        headers = {
+            "Authorization": f"Bearer {self._service_bearer_token}",
+            "X-Correlation-ID": str(correlation_id),
+        }
+        try:
+            async with httpx.AsyncClient(
+                base_url=self._base_url,
+                timeout=self._timeout_seconds,
+                transport=self._transport,
+            ) as client:
+                response = await client.post(
+                    f"/internal/v1/goal-sessions/{session_id}/mark-confirmed",
+                    json={"goal_id": str(goal_id), "expected_revision": expected_revision},
+                    headers=headers,
+                )
+        except httpx.HTTPError as exc:
+            raise CandidateUnavailable from exc
+        if response.status_code == 204:
+            return
+        if response.status_code == 409:
+            raise CandidateConflict("Goal Intelligence rejected the confirmation mark")
+        raise CandidateUnavailable(f"unexpected Goal Intelligence status {response.status_code}")

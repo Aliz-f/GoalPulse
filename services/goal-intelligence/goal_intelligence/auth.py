@@ -1,27 +1,26 @@
-"""Caller identification for Goal Intelligence.
+"""Validated service-JWT authentication for Goal Intelligence.
 
-Follows the ICP-01 proposal (contracts/openapi/internal.proposed.v1.yaml): every
-call carries a machine-to-machine credential as ``Authorization: Bearer <token>``
-(security scheme ``ServiceBearer``).
-
-INTERIM until ICP-08 fixes the identity design (Developer 1):
-- Service tokens are opaque per-service secrets from ``GI_SERVICE_TOKENS``
-  ("gateway=<secret>,goal-management=<secret>"), compared in constant time.
-  ICP-01 says ``bearerFormat: JWT``; swap ``_service_for`` for JWT verification
-  (issuer/audience/expiry) once ICP-08 picks the issuer. Handlers only see ``Caller``.
-- Public ``/v1`` routes accept only the ``gateway`` service. The gateway has already
-  validated the end-user JWT and passes the canonical user UUID in
-  ``X-Authenticated-User-Id``; that header is trusted *only* together with a valid
-  gateway credential, and the gateway must strip any client-supplied copy.
-- Internal ``/internal/v1`` routes accept only ``goal-management``. The contract
-  lists 403 for every identity failure there, so missing/invalid credentials are 403.
+The public Gateway authenticates the end user, then calls GI with its own
+service JWT and the canonical user UUID. Goal Management uses a separate
+service JWT for each accepted internal operation. Browser-provided identity
+headers are never sufficient on their own.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import hmac
+import json
+import time
 import uuid
 from dataclasses import dataclass
+from typing import Any
+
+
+GATEWAY_SESSION_SCOPE = "gi.session.write"
+GM_CANDIDATE_SCOPE = "gi.candidate.read"
+GM_CONFIRM_SCOPE = "gi.confirmation.write"
 
 
 class AuthError(Exception):
@@ -33,57 +32,112 @@ class Forbidden(AuthError):
 
 
 @dataclass(frozen=True)
+class Principal:
+    subject: str
+    scopes: frozenset[str]
+
+
+@dataclass(frozen=True)
 class Caller:
-    service: str
+    subject: str
     user_id: str | None = None
 
 
-def parse_service_tokens(raw: str | None) -> dict[str, str]:
-    tokens: dict[str, str] = {}
-    for part in (raw or "").split(","):
-        name, sep, secret = part.strip().partition("=")
-        if sep and name.strip() and len(secret.strip()) >= 16:
-            tokens[name.strip()] = secret.strip()
-    return tokens
+def _decode_segment(value: str) -> dict[str, Any]:
+    try:
+        raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+        decoded = json.loads(raw)
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise AuthError("malformed bearer token") from exc
+    if not isinstance(decoded, dict):
+        raise AuthError("invalid bearer token JSON")
+    return decoded
 
 
-def bearer_token(authorization: str | None) -> str | None:
-    """Extract the token from an ``Authorization: Bearer <token>`` header."""
-    if not authorization:
-        return None
-    scheme, _, token = authorization.strip().partition(" ")
-    if scheme.lower() != "bearer":
-        return None
-    return token.strip() or None
+def _audience_matches(value: Any, expected: str) -> bool:
+    return value == expected or (isinstance(value, list) and expected in value)
+
+
+class ServiceJwtVerifier:
+    """Verify the accepted local HS256 service-token profile from ADR-0002."""
+
+    def __init__(self, *, secret: str, issuer: str, audience: str) -> None:
+        if len(secret) < 32:
+            raise ValueError("SERVICE_JWT_SECRET must be at least 32 characters")
+        if not issuer or not audience:
+            raise ValueError("SERVICE_JWT_ISSUER and SERVICE_JWT_AUDIENCE are required")
+        self._secret = secret.encode("utf-8")
+        self._issuer = issuer
+        self._audience = audience
+
+    def verify(self, authorization: str | None, *, now: int | None = None) -> Principal:
+        if not authorization:
+            raise AuthError("missing bearer token")
+        scheme, separator, token = authorization.strip().partition(" ")
+        if not separator or scheme.lower() != "bearer" or not token.strip():
+            raise AuthError("missing bearer token")
+        parts = token.strip().split(".")
+        if len(parts) != 3:
+            raise AuthError("malformed bearer token")
+        header = _decode_segment(parts[0])
+        claims = _decode_segment(parts[1])
+        if header.get("alg") != "HS256" or header.get("typ") != "JWT":
+            raise AuthError("unsupported token algorithm")
+        expected = hmac.new(self._secret, f"{parts[0]}.{parts[1]}".encode(), hashlib.sha256).digest()
+        try:
+            signature = base64.urlsafe_b64decode(parts[2] + "=" * (-len(parts[2]) % 4))
+        except ValueError as exc:
+            raise AuthError("malformed bearer signature") from exc
+        if not hmac.compare_digest(expected, signature):
+            raise AuthError("invalid bearer signature")
+
+        clock = int(time.time()) if now is None else now
+        if claims.get("iss") != self._issuer or not _audience_matches(claims.get("aud"), self._audience):
+            raise AuthError("invalid token issuer or audience")
+        if claims.get("token_kind") != "service" or not isinstance(claims.get("exp"), int):
+            raise AuthError("invalid token claims")
+        if claims["exp"] <= clock or (isinstance(claims.get("nbf"), int) and claims["nbf"] > clock):
+            raise AuthError("expired or inactive token")
+        try:
+            subject = str(uuid.UUID(str(claims["sub"])))
+        except (KeyError, ValueError, TypeError) as exc:
+            raise AuthError("token subject must be a UUID") from exc
+
+        raw_scopes = claims.get("scope", [])
+        if isinstance(raw_scopes, str):
+            scopes = raw_scopes.split()
+        elif isinstance(raw_scopes, list):
+            scopes = raw_scopes
+        else:
+            raise AuthError("invalid token scopes")
+        if not all(isinstance(scope, str) for scope in scopes):
+            raise AuthError("invalid token scopes")
+        return Principal(subject=subject, scopes=frozenset(scopes))
 
 
 class Authenticator:
-    def __init__(self, tokens: dict[str, str]):
-        self._tokens = dict(tokens)
+    def __init__(self, verifier: ServiceJwtVerifier):
+        self._verifier = verifier
 
-    def _service_for(self, token: str | None) -> str | None:
-        if not token:
-            return None
-        match = None
-        for name, secret in self._tokens.items():
-            if hmac.compare_digest(secret.encode(), token.encode()):
-                match = name
-        return match
+    def _with_scope(self, authorization: str | None, required_scope: str, *, internal: bool) -> Principal:
+        try:
+            principal = self._verifier.verify(authorization)
+        except AuthError as exc:
+            if internal:
+                raise Forbidden("Goal Management service identity required") from exc
+            raise
+        if required_scope not in principal.scopes:
+            raise Forbidden("service scope is not permitted")
+        return principal
 
     def user_caller(self, authorization: str | None, user_header: str | None) -> Caller:
-        service = self._service_for(bearer_token(authorization))
-        if service is None:
-            raise AuthError("missing or invalid service credential")
-        if service != "gateway":
-            raise Forbidden("only the gateway may call public routes")
+        principal = self._with_scope(authorization, GATEWAY_SESSION_SCOPE, internal=False)
         try:
             user_id = str(uuid.UUID(user_header or ""))
         except ValueError as exc:
             raise AuthError("missing authenticated user") from exc
-        return Caller(service=service, user_id=user_id)
+        return Caller(subject=principal.subject, user_id=user_id)
 
-    def internal_caller(self, authorization: str | None, allowed: tuple[str, ...] = ("goal-management",)) -> Caller:
-        service = self._service_for(bearer_token(authorization))
-        if service is None or service not in allowed:
-            raise Forbidden("Goal Management service identity required")
-        return Caller(service=service)
+    def internal_caller(self, authorization: str | None, required_scope: str) -> Caller:
+        principal = self._with_scope(authorization, required_scope, internal=True)
+        return Caller(subject=principal.subject)

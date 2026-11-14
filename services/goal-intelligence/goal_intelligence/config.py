@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-from .auth import Authenticator, parse_service_tokens
+from .auth import Authenticator, ServiceJwtVerifier
 from .llm.base import ResilientExtractor
 from .llm.fixture import FixtureExtractor
 from .persistence.repository import SqlDraftRepository, postgres_repository, sqlite_repository
@@ -16,12 +16,14 @@ from .service import GoalIntelligenceService, Limits
 class Settings:
     database_url: str = field(default_factory=lambda: os.environ.get("GI_DATABASE_URL", ""))
     llm_provider: str = field(default_factory=lambda: os.environ.get("GI_LLM_PROVIDER", "fixture"))
-    llm_model: str = field(default_factory=lambda: os.environ.get("GI_LLM_MODEL", "claude-haiku-5-5"))
+    llm_model: str = field(default_factory=lambda: os.environ.get("GI_LLM_MODEL", "claude-haiku-4-5-20251001"))
     llm_timeout_s: float = field(default_factory=lambda: float(os.environ.get("GI_LLM_TIMEOUT_S", "20")))
     llm_max_attempts: int = field(default_factory=lambda: int(os.environ.get("GI_LLM_MAX_ATTEMPTS", "3")))
     max_message_chars: int = field(default_factory=lambda: int(os.environ.get("GI_MAX_MESSAGE_CHARS", "2000")))
     max_user_turns: int = field(default_factory=lambda: int(os.environ.get("GI_MAX_USER_TURNS", "20")))
-    service_tokens: str = field(default_factory=lambda: os.environ.get("GI_SERVICE_TOKENS", ""), repr=False)
+    service_jwt_secret: str = field(default_factory=lambda: os.environ.get("SERVICE_JWT_SECRET", ""), repr=False)
+    service_jwt_issuer: str = field(default_factory=lambda: os.environ.get("SERVICE_JWT_ISSUER", ""))
+    service_jwt_audience: str = field(default_factory=lambda: os.environ.get("SERVICE_JWT_AUDIENCE", ""))
 
 
 def build_repository(settings: Settings) -> SqlDraftRepository:
@@ -59,7 +61,12 @@ def build_service(settings: Settings) -> GoalIntelligenceService:
 
 
 def build_authenticator(settings: Settings) -> Authenticator:
-    tokens = parse_service_tokens(settings.service_tokens)
-    if not tokens:
-        raise RuntimeError("GI_SERVICE_TOKENS must define at least one service token (>=16 chars)")
-    return Authenticator(tokens)
+    try:
+        verifier = ServiceJwtVerifier(
+            secret=settings.service_jwt_secret,
+            issuer=settings.service_jwt_issuer,
+            audience=settings.service_jwt_audience,
+        )
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    return Authenticator(verifier)

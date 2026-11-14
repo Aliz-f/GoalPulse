@@ -1,6 +1,6 @@
 import type { CandidateSummary } from "@/lib/summary";
 
-const SOURCE_LABEL = { you: "From you", proposed: "Proposed default", fixed: "Always" } as const;
+const SOURCE_LABEL = { you: "From you", configured: "In this draft", fixed: "Always" } as const;
 
 export function DraftSummary({ summary, badge }: { summary: CandidateSummary; badge: string }) {
   if (!summary.goalType) {

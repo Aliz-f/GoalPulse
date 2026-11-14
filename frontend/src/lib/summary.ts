@@ -3,7 +3,7 @@
 
 import { formatDuration, formatEurCents } from "./format.ts";
 
-export type RowSource = "you" | "proposed" | "fixed";
+export type RowSource = "you" | "configured" | "fixed";
 
 export interface SummaryRow {
   label: string;
@@ -59,6 +59,9 @@ export function summarizeCandidate(candidate: Record<string, unknown>): Candidat
 
   if (goalType === "product_purchase") {
     const product = obj(criteria.product);
+    const attributes = Object.entries(obj(product.required_attributes))
+      .filter(([key, value]) => key.trim().length > 0 && str(value) !== null)
+      .map(([key, value]) => `${key}: ${str(value)}`);
     const condition = product.condition === "new" ? "New only" : product.condition === "any" ? "New or used" : null;
     const match =
       product.match_policy === "exact_model"
@@ -67,16 +70,18 @@ export function summarizeCandidate(candidate: Record<string, unknown>): Candidat
           ? "Equivalent models OK"
           : null;
     const qty = int(criteria.quantity);
+    const productRows: SummaryRow[] = [
+      row("Product", str(product.query), "you"),
+      row("Condition", condition, "you"),
+      row("Match", match, "you"),
+      row("Quantity", qty === null ? null : String(qty), "you"),
+      row("Budget (total)", money(criteria.max_total_eur_cents), "you"),
+      row("Delivery", delivery, "you"),
+    ];
+    if (attributes.length > 0) productRows.splice(3, 0, row("Required attributes", attributes.join(", "), "you"));
     sections.push({
       title: "What you want",
-      rows: [
-        row("Product", str(product.query), "you"),
-        row("Condition", condition, "you"),
-        row("Match", match, "you"),
-        row("Quantity", qty === null ? null : String(qty), "you"),
-        row("Budget (total)", money(criteria.max_total_eur_cents), "you"),
-        row("Delivery", delivery, "you"),
-      ],
+      rows: productRows,
     });
   } else if (goalType === "recurring_procurement") {
     for (const raw of Array.isArray(criteria.items) ? criteria.items : []) {
@@ -97,7 +102,7 @@ export function summarizeCandidate(candidate: Record<string, unknown>): Candidat
         row("You spend now", money(criteria.current_total_eur_cents), "you"),
         row("Target (max per month)", money(criteria.max_total_eur_cents), "you"),
         row("Delivery", delivery, "you"),
-        row("Max sellers", sellers === null ? null : String(sellers), "proposed"),
+        row("Max sellers", sellers === null ? null : String(sellers), "configured"),
       ],
     });
   }
@@ -108,9 +113,9 @@ export function summarizeCandidate(candidate: Record<string, unknown>): Candidat
     sections.push({
       title: "How GoalPulse watches",
       rows: [
-        row("Check offers", freq === null ? null : `Every ${formatDuration(freq, true)}`, "proposed"),
-        row("Trust evidence up to", age === null ? null : `${formatDuration(age)} old`, "proposed"),
-        row("Notify you", actions.notify_user === false ? "No" : "In the app", "proposed"),
+        row("Check offers", freq === null ? null : `Every ${formatDuration(freq, true)}`, "configured"),
+        row("Trust evidence up to", age === null ? null : `${formatDuration(age)} old`, "configured"),
+        row("Notify you", actions.notify_user === false ? "No" : "In the app", "configured"),
         // These two are fixed by the contract and shown so nobody assumes otherwise.
         row("Buying", "Never automatic — GoalPulse prepares the details, you buy", "fixed"),
       ],

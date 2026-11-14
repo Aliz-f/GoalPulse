@@ -75,7 +75,7 @@ function GatewayAuth() {
         setEditing(false);
       }}
     >
-      {/* Interim until ICP-08: paste a token from the agreed dev issuer. */}
+      {/* Interim UI for the signed local-dev issuer accepted under ICP-08. */}
       <label htmlFor="token" className="visually-hidden">
         Access token
       </label>

@@ -2,19 +2,69 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
 import uuid
 
 import pytest
 from conftest import USER_A, USER_B, converse
 
-from goal_intelligence.auth import Authenticator, AuthError, Forbidden, parse_service_tokens
+from goal_intelligence.auth import (
+    Authenticator,
+    AuthError,
+    Forbidden,
+    GATEWAY_SESSION_SCOPE,
+    GM_CANDIDATE_SCOPE,
+    GM_CONFIRM_SCOPE,
+    ServiceJwtVerifier,
+)
 from goal_intelligence.service import Conflict, NotFound
 from test_gi_compiler import PRODUCT_FLOW
 
-GW = "gateway-secret-0123456789"
-GM = "gm-secret-0123456789abcd"
-DM = "dm-secret-0123456789abcd"
-TOKENS = {"gateway": GW, "goal-management": GM, "discovery-monitoring": DM}
+JWT_SECRET = "goal-intelligence-service-jwt-secret-32-chars"
+JWT_ISSUER = "goalpulse-internal-dev"
+JWT_AUDIENCE = "goalpulse-internal"
+GATEWAY_SUBJECT = "ae000000-0000-4000-8000-000000000010"
+GM_SUBJECT = "ae000000-0000-4000-8000-000000000011"
+DM_SUBJECT = "ae000000-0000-4000-8000-000000000012"
+
+
+def service_jwt(
+    scope: str,
+    *,
+    subject: str = GM_SUBJECT,
+    issuer: str = JWT_ISSUER,
+    audience: str = JWT_AUDIENCE,
+    expires: int = 4102444800,
+    secret: str = JWT_SECRET,
+) -> str:
+    encode = lambda value: base64.urlsafe_b64encode(  # noqa: E731 - compact deterministic test JWT helper
+        json.dumps(value, separators=(",", ":")).encode()
+    ).rstrip(b"=").decode()
+    header = encode({"alg": "HS256", "typ": "JWT"})
+    payload = encode({
+        "iss": issuer,
+        "aud": audience,
+        "sub": subject,
+        "token_kind": "service",
+        "scope": scope,
+        "exp": expires,
+    })
+    signature = base64.urlsafe_b64encode(
+        hmac.new(secret.encode(), f"{header}.{payload}".encode(), hashlib.sha256).digest()
+    ).rstrip(b"=").decode()
+    return f"{header}.{payload}.{signature}"
+
+
+GW = service_jwt(GATEWAY_SESSION_SCOPE, subject=GATEWAY_SUBJECT)
+GM = service_jwt(f"{GM_CANDIDATE_SCOPE} {GM_CONFIRM_SCOPE}")
+DM = service_jwt("dm.extraction.write", subject=DM_SUBJECT)
+
+
+def authenticator() -> Authenticator:
+    return Authenticator(ServiceJwtVerifier(secret=JWT_SECRET, issuer=JWT_ISSUER, audience=JWT_AUDIENCE))
 
 
 # ---------------------------------------------------------------- service layer
@@ -107,28 +157,39 @@ def test_mark_confirmed_unknown_session_is_409_not_404(service):
 # ---------------------------------------------------------------- authentication
 
 
-def test_token_parsing_ignores_weak_or_malformed_entries():
-    assert parse_service_tokens(f"gateway={GW}, weak=short, junk, goal-management={GM}") == {
-        "gateway": GW, "goal-management": GM}
-
-
-def test_user_caller_requires_gateway_token_and_uuid():
-    auth = Authenticator(TOKENS)
+def test_user_caller_requires_valid_scoped_gateway_jwt_and_uuid():
+    auth = authenticator()
     assert auth.user_caller(f"Bearer {GW}", USER_A).user_id == USER_A
     assert auth.user_caller(f"bearer  {GW} ", USER_A).user_id == USER_A
-    for bad in (None, "", GW, f"Basic {GW}", "Bearer wrong-token-0123456789", "Bearer"):
+    for bad in (
+        None,
+        "",
+        GW,
+        f"Basic {GW}",
+        "Bearer wrong-token",
+        "Bearer",
+        f"Bearer {service_jwt(GATEWAY_SESSION_SCOPE, issuer='wrong-issuer')}",
+        f"Bearer {service_jwt(GATEWAY_SESSION_SCOPE, audience='wrong-audience')}",
+        f"Bearer {service_jwt(GATEWAY_SESSION_SCOPE, expires=1)}",
+        f"Bearer {service_jwt(GATEWAY_SESSION_SCOPE, subject='not-a-uuid')}",
+        f"Bearer {service_jwt(GATEWAY_SESSION_SCOPE, secret='different-signing-secret-that-is-long-enough')}",
+    ):
         with pytest.raises(AuthError):
             auth.user_caller(bad, USER_A)
     with pytest.raises(AuthError):
         auth.user_caller(f"Bearer {GW}", "not-a-uuid")
-    with pytest.raises(Forbidden):  # a service token cannot impersonate users
+    with pytest.raises(Forbidden):  # a service token without the Gateway scope cannot impersonate users
         auth.user_caller(f"Bearer {GM}", USER_A)
 
 
 def test_internal_routes_only_for_goal_management():
-    auth = Authenticator(TOKENS)
-    assert auth.internal_caller(f"Bearer {GM}").service == "goal-management"
+    auth = authenticator()
+    assert auth.internal_caller(f"Bearer {GM}", GM_CANDIDATE_SCOPE).subject == GM_SUBJECT
+    assert auth.internal_caller(f"Bearer {GM}", GM_CONFIRM_SCOPE).subject == GM_SUBJECT
+    candidate_only = service_jwt(GM_CANDIDATE_SCOPE)
+    with pytest.raises(Forbidden):
+        auth.internal_caller(f"Bearer {candidate_only}", GM_CONFIRM_SCOPE)
     # ICP-01 lists only 403 for identity failures on internal routes
     for bad in (f"Bearer {GW}", f"Bearer {DM}", None, "Bearer nope-nope-nope-nope", GM):
         with pytest.raises(Forbidden):
-            auth.internal_caller(bad)
+            auth.internal_caller(bad, GM_CANDIDATE_SCOPE)

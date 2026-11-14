@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 from conftest import USER_A, assemble_goal_spec, converse
 
-from goal_intelligence.domain.compiler import WorkingState, compile_turn
+from goal_intelligence.domain.compiler import WorkingState, compile_turn, summary_text
 from goal_intelligence.domain.extraction import ExtractionPatch, ItemPatch
 from goal_intelligence.domain.money import MoneyError, cents_after_savings, parse_eur_to_cents
 
@@ -39,6 +39,26 @@ def test_parse_eur(raw, cents):
 def test_parse_eur_rejects(raw):
     with pytest.raises(MoneyError):
         parse_eur_to_cents(raw)
+
+
+def test_product_summary_includes_every_required_attribute():
+    state = WorkingState(
+        goal_type="product_purchase",
+        product_query="Example laptop",
+        match_policy="exact_model",
+        condition="new",
+        quantity=1,
+        required_attributes={"memory": "16 GB", "colour": "black"},
+        max_total_eur_cents=100000,
+        delivery_country="FI",
+        include_shipping_and_tax=True,
+        frequency_minutes=1440,
+        max_evidence_age_minutes=60,
+        notify_user=True,
+    )
+    summary = summary_text(state)
+    assert "colour: black" in summary
+    assert "memory: 16 GB" in summary
 
 
 def test_parse_eur_refuses_floats():

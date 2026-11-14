@@ -36,9 +36,19 @@ describe("summarizeCandidate", () => {
     assert.equal(r["Match"].value, "Equivalent models OK");
     assert.match(r["Budget (total)"].value, /600/);
     assert.match(r["Delivery"].value, /Finland, shipping and tax included/);
-    assert.equal(r["Check offers"].source, "proposed");
+    assert.equal(r["Check offers"].source, "configured");
     assert.match(r["Buying"].value, /Never automatic/);
     assert.ok(!Object.values(r).some((x) => x.missing));
+  });
+
+  it("shows required product attributes in the exact confirmation summary", () => {
+    const draft = structuredClone(last("product"));
+    const criteria = draft.candidate_goal.criteria as { product: { required_attributes?: Record<string, string> } };
+    criteria.product.required_attributes = { memory: "16 GB", colour: "black" };
+    const r = rows(summarizeCandidate(draft.candidate_goal));
+    assert.match(r["Required attributes"].value, /memory: 16 GB/);
+    assert.match(r["Required attributes"].value, /colour: black/);
+    assert.equal(r["Required attributes"].source, "you");
   });
 
   it("renders procurement items including empty requirements as None", () => {

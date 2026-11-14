@@ -406,10 +406,14 @@ def summary_text(state: WorkingState) -> str:
     if state.goal_type == "product_purchase":
         cond = "new" if state.condition == "new" else "new or used"
         match = "exactly this model" if state.match_policy == "exact_model" else "equivalent models OK"
+        attributes = ""
+        if state.required_attributes:
+            rendered = ", ".join(f"{key}: {value}" for key, value in sorted(state.required_attributes.items()))
+            attributes = f" Required attributes: {rendered}."
         head = (
             f"Here's the goal: buy {state.quantity} × {state.product_query} ({cond}, {match}) for at most "
             f"{format_cents(state.max_total_eur_cents or 0)} in total including shipping and tax, "
-            f"delivered to Finland."
+            f"delivered to Finland.{attributes}"
         )
     else:
         parts = []

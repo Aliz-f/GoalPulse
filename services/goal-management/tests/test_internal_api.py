@@ -16,6 +16,7 @@ ROOT = Path(__file__).parents[3]
 sys.path.insert(0, str(ROOT / "services/goal-management/src"))
 
 from goal_management.api import create_app
+from goal_management.clients import CandidateUnavailable
 
 
 GOAL = uuid.UUID("ae000000-0000-4000-8000-000000000002")
@@ -71,9 +72,18 @@ class FakeCandidates:
             "next_question": None,
             "ready_for_confirmation": True,
         }
+        self.confirmed = []
 
     async def get_candidate(self, session_id, expected_revision, correlation_id):
         return self.candidate
+
+    async def mark_confirmed(self, session_id, goal_id, expected_revision, correlation_id):
+        self.confirmed.append((session_id, goal_id, expected_revision, correlation_id))
+
+
+class FailingMarkCandidates(FakeCandidates):
+    async def mark_confirmed(self, session_id, goal_id, expected_revision, correlation_id):
+        raise CandidateUnavailable("temporary GI failure")
 
 
 def bearer(*, kind="service", scope="", subject=OWNER):
@@ -160,19 +170,35 @@ def test_internal_calls_reject_invalid_correlation_ids_and_generate_missing_ones
 
 def test_confirm_builds_strict_server_owned_spec_and_persists_activation_intent():
     reads = FakeReads()
+    candidates = FakeCandidates()
     response = request(
         "POST",
         f"/v1/goal-sessions/{SESSION}/confirm",
         headers={"Authorization": bearer(kind="user")},
         body={"expected_revision": 2, "approved": True},
         reads=reads,
-        candidates=FakeCandidates(),
+        candidates=candidates,
     )
     assert response.status_code == 201
     assert response.json()["goal_id"] == str(GOAL)
     assert response.json()["owner_user_id"] == str(OWNER)
     assert len(reads.created) == 1
     assert reads.created[0].correlation_id == uuid.UUID(CORRELATION)
+    assert candidates.confirmed == [(SESSION, GOAL, 2, uuid.UUID(CORRELATION))]
+
+
+def test_confirmed_goal_is_not_rolled_back_when_gi_ux_mark_is_unavailable():
+    reads = FakeReads()
+    response = request(
+        "POST",
+        f"/v1/goal-sessions/{SESSION}/confirm",
+        headers={"Authorization": bearer(kind="user")},
+        body={"expected_revision": 2, "approved": True},
+        reads=reads,
+        candidates=FailingMarkCandidates(),
+    )
+    assert response.status_code == 201
+    assert len(reads.created) == 1
 
 
 def test_confirm_rejects_stale_foreign_and_invalid_candidates():

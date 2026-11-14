@@ -3,10 +3,10 @@
 Run: ``uvicorn goal_intelligence.api.app:create_app --factory --port 8102``
 (from services/goal-intelligence, with GI_* environment variables set).
 
-Errors use the ICP-01 ``Error`` shape ``{"code", "message"}`` everywhere. Status codes
-stay within what the contracts list: public create 201/401/422; message
-200/401/404/409/422; get 200/401/404; internal candidate 200/403/404/409;
-internal mark-confirmed 204/403/409.
+Errors use the ICP-01 ``Error`` shape ``{"code", "message"}`` everywhere. The
+service returns explicit authentication and input-validation failures. Some of
+those public failure responses are not enumerated in frozen Gateway v1; the
+Gateway must not expose a different shape without a coordinated contract release.
 """
 
 # No "from __future__ import annotations": FastAPI must see real types on the
@@ -20,7 +20,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..auth import AuthError, Authenticator, Caller
+from ..auth import AuthError, Authenticator, Caller, GM_CANDIDATE_SCOPE, GM_CONFIRM_SCOPE
 from ..config import Settings, build_authenticator, build_service
 from ..service import GoalDraftOut, GoalIntelligenceService, ServiceError
 
@@ -52,11 +52,8 @@ def error(status: int, code: str, message: str) -> JSONResponse:
 
 
 def _correlation_id(raw: str | None) -> str:
-    """Propagate a caller's UUID correlation id; mint one otherwise (10-internal-contracts)."""
-    try:
-        return str(uuid.UUID(raw or ""))
-    except ValueError:
-        return str(uuid.uuid4())
+    """Propagate a valid UUID correlation id; mint one only when absent."""
+    return str(uuid.uuid4()) if raw is None else str(uuid.UUID(raw))
 
 
 def create_app(
@@ -74,12 +71,18 @@ def create_app(
     ) -> Caller:
         return auth.user_caller(authorization, x_authenticated_user_id)
 
-    def gm(authorization: Annotated[str | None, Header()] = None) -> Caller:
-        return auth.internal_caller(authorization)
+    def gm_candidate(authorization: Annotated[str | None, Header()] = None) -> Caller:
+        return auth.internal_caller(authorization, GM_CANDIDATE_SCOPE)
+
+    def gm_confirm(authorization: Annotated[str | None, Header()] = None) -> Caller:
+        return auth.internal_caller(authorization, GM_CONFIRM_SCOPE)
 
     @app.middleware("http")
     async def correlation(request: Request, call_next):  # type: ignore[no-untyped-def]
-        cid = _correlation_id(request.headers.get(CORRELATION_HEADER))
+        try:
+            cid = _correlation_id(request.headers.get(CORRELATION_HEADER))
+        except ValueError:
+            return error(400, "invalid_correlation_id", "X-Correlation-ID must be a UUID")
         request.state.correlation_id = cid
         response = await call_next(request)
         response.headers[CORRELATION_HEADER] = cid
@@ -122,12 +125,16 @@ def create_app(
     def get_candidate(
         session_id: SessionId,
         expected_revision: Annotated[int, Query(ge=1)],
-        _: Annotated[Caller, Depends(gm)],
+        _: Annotated[Caller, Depends(gm_candidate)],
     ) -> GoalDraftOut:
         return svc.get_candidate(str(session_id), expected_revision)
 
     @app.post("/internal/v1/goal-sessions/{session_id}/mark-confirmed", status_code=204)
-    def mark_confirmed(session_id: SessionId, body: MarkConfirmedIn, _: Annotated[Caller, Depends(gm)]) -> Response:
+    def mark_confirmed(
+        session_id: SessionId,
+        body: MarkConfirmedIn,
+        _: Annotated[Caller, Depends(gm_confirm)],
+    ) -> Response:
         svc.mark_confirmed(str(session_id), str(body.goal_id), body.expected_revision)
         return Response(status_code=204)
 

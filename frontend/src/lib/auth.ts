@@ -1,4 +1,5 @@
-// INTERIM sign-in until ICP-08 picks the identity provider (Developer 1).
+// Interim UI for the signed local-dev issuer accepted under ICP-08. D1-GW-01
+// owns replacement with an external identity-provider sign-in flow.
 // The browser only ever holds the end user's own access token and sends it to the
 // public gateway as a Bearer token. It is kept in memory and in sessionStorage
 // (cleared when the tab closes), never in localStorage or a readable cookie, and

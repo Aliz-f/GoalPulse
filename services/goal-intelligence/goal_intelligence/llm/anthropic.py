@@ -69,7 +69,7 @@ class AnthropicExtractor:
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-haiku-5-5",
+        model: str = "claude-haiku-4-5-20251001",
         *,
         max_tokens: int = 800,
         transport: Transport = _urllib_transport,

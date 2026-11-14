@@ -7,9 +7,8 @@ import uuid
 import pytest
 from conftest import USER_A, USER_B
 
-from goal_intelligence.auth import Authenticator
 from test_gi_compiler import PRODUCT_FLOW
-from test_gi_endpoints import GM, GW, TOKENS
+from test_gi_endpoints import GM, GW, authenticator
 
 
 fastapi = pytest.importorskip("fastapi", reason="FastAPI not installed; HTTP layer NOT RUN")
@@ -21,7 +20,7 @@ from goal_intelligence.api.app import create_app  # noqa: E402
 
 @pytest.fixture
 def client(service):
-    return TestClient(create_app(service=service, authenticator=Authenticator(TOKENS)))
+    return TestClient(create_app(service=service, authenticator=authenticator()))
 
 
 def as_user(user=USER_A):
@@ -79,3 +78,6 @@ def test_correlation_id_is_propagated_or_minted(client):
     assert r.status_code == 404 and r.headers["X-Correlation-ID"] == cid
     minted = client.get("/healthz").headers["X-Correlation-ID"]
     assert str(uuid.UUID(minted)) == minted
+    invalid = client.get("/healthz", headers={"X-Correlation-ID": "not-a-uuid"})
+    assert invalid.status_code == 400
+    assert invalid.json() == {"code": "invalid_correlation_id", "message": "X-Correlation-ID must be a UUID"}

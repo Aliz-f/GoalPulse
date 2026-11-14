@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
+import logging
 import os
 from pathlib import Path
 import time
@@ -20,6 +21,9 @@ import psycopg
 
 from .clients import CandidateConflict, CandidateUnavailable
 from .repository import GoalVersionRecord
+
+
+log = logging.getLogger("goal_management.api")
 
 
 GoalStatus = Literal["active", "paused", "completed", "cancelled"]
@@ -53,6 +57,14 @@ class CandidateReader(Protocol):
         expected_revision: int,
         correlation_id: uuid.UUID,
     ) -> dict[str, Any] | None: ...
+
+    async def mark_confirmed(
+        self,
+        session_id: uuid.UUID,
+        goal_id: uuid.UUID,
+        expected_revision: int,
+        correlation_id: uuid.UUID,
+    ) -> None: ...
 
 
 _ROOT = Path(__file__).resolve().parents[4]
@@ -263,6 +275,15 @@ def create_app(
             raise HTTPException(422, "GoalSpec validation failed") from exc
         except psycopg.errors.UniqueViolation as exc:
             raise HTTPException(409, "session already confirmed") from exc
+        try:
+            await candidates.mark_confirmed(session_id, goal_id, body.expected_revision, correlation)
+        except (CandidateConflict, CandidateUnavailable):
+            # The GoalSpec/outbox transaction is already durable and remains
+            # authoritative. A failed UX mark must not roll it back.
+            log.warning(
+                "Goal Intelligence confirmation mark failed; reconciliation required",
+                extra={"correlation_id": str(correlation)},
+            )
         return goal_spec
 
     @app.get("/v1/goals")
