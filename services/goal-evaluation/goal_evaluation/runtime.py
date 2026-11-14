@@ -45,6 +45,7 @@ class EvaluationRuntime:
     consumer: EvidenceConsumer
     publisher: OutboxPublisher
     ready: Callable[[], bool]
+    goals: GoalHttpReader
 
 
 def build_runtime(*, connect_database: Callable, broker_connection, queue: str,
@@ -114,4 +115,4 @@ def build_runtime(*, connect_database: Callable, broker_connection, queue: str,
 
     worker = EvaluationWorker(broker_connection, coordinator, publisher, queue=queue,
         dead_letter_exchange=dead_letter_exchange, dead_letter_routing_key=dead_letter_routing_key, ready=ready)
-    return EvaluationRuntime(worker, ImmutableEvaluationReader(contracts, store), consumer, publisher, ready)
+    return EvaluationRuntime(worker, ImmutableEvaluationReader(contracts, store), consumer, publisher, ready, goals)

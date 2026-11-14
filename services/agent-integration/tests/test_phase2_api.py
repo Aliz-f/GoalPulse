@@ -15,6 +15,8 @@ from test_eligibility import inputs
 from agent_integration.api import create_app
 from agent_integration.service import PackageReader, Principal
 
+CORRELATION = 'ae000000-0000-4000-8000-000000000099'
+
 
 @pytest.fixture
 def api(setup):
@@ -25,7 +27,8 @@ def api(setup):
     context = {'owner': s.inputs['goal']['owner_user_id']}
     def authenticate():
         return Principal(context['owner']) if context['owner'] else None
-    client = TestClient(create_app(reader=reader, authenticate=authenticate, ready=lambda: True))
+    client = TestClient(create_app(reader=reader, authenticate=authenticate, ready=lambda: True),
+                        headers={'X-Correlation-ID': CORRELATION})
     path = '/v1/action-packages/' + package['package_id']
     return s, package, context, client, path
 
@@ -63,6 +66,16 @@ def test_unauthenticated_request_cannot_choose_owner_in_headers(api):
     context['owner'] = None
     response = client.get(path, headers={'X-User-Id': s.inputs['goal']['owner_user_id']})
     assert response.status_code == 401
+
+
+def test_correlation_is_required_and_must_be_uuid(api):
+    _, _, _, client, path = api
+    correlation = client.headers.pop('x-correlation-id')
+    try:
+        assert client.get(path).status_code == 422
+    finally:
+        client.headers['x-correlation-id'] = correlation
+    assert client.get(path, headers={'X-Correlation-ID': 'invalid'}).status_code == 422
 
 
 def test_expired_package_is_410_and_get_never_renews_it(api):

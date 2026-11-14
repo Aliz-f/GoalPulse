@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Callable
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
@@ -68,18 +68,22 @@ def create_app(*, store, authorize_read: Callable, authorize_write: Callable,
         return JSONResponse(status_code=404, content={'detail': 'notification not found'})
 
     @app.get('/v1/notifications', response_model=list[NotificationDTO])
-    def list_notifications(limit: int = Query(20, ge=1, le=100),
-                           principal=Depends(authorize_read)):
+    def list_notifications(response: Response, limit: int = Query(20, ge=1, le=100),
+                           principal=Depends(authorize_read),
+                           correlation: UUID = Header(alias='X-Correlation-ID')):
         service = access(principal)
         try:
-            return [NotificationDTO.from_item(item) for item in service.list(limit=limit).items]
+            items = [NotificationDTO.from_item(item) for item in service.list(limit=limit).items]
         except AuthenticationRequired:
             raise
         except Exception:
             raise HTTPException(503, 'notification storage unavailable') from None
+        response.headers['X-Correlation-ID'] = str(correlation)
+        return items
 
     @app.patch('/v1/notifications/{notification_id}/read', status_code=204)
-    def mark_read(notification_id: UUID, principal=Depends(authorize_write)):
+    def mark_read(notification_id: UUID, principal=Depends(authorize_write),
+                  correlation: UUID = Header(alias='X-Correlation-ID')):
         service = access(principal)
         try:
             service.mark_read(str(notification_id))
@@ -87,7 +91,7 @@ def create_app(*, store, authorize_read: Callable, authorize_write: Callable,
             raise
         except Exception:
             raise HTTPException(503, 'notification storage unavailable') from None
-        return Response(status_code=204)
+        return Response(status_code=204, headers={'X-Correlation-ID': str(correlation)})
 
     @app.get('/health/live')
     def live():

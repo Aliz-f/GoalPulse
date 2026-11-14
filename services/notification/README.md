@@ -82,20 +82,21 @@ calls carry the original correlation ID.
 
 In-app defaults enabled when no preference exists and honors the immutable goal's
 `notify_user` action. Email defaults disabled in the migration and no email,
-purchase or external delivery adapter exists. This task exposes no frontend
-list/mark-read route: ICP-02 and D1 identity approval must precede HTTP handlers.
-Local owner-filtered read operations are described below. User HTTP isolation
-is not claimed as tested before those handlers exist.
+purchase or external delivery adapter exists. The private HTTP handler implements
+the accepted ICP-02/MVP-07 list/mark-read routes; D1 must still supply authenticated
+Gateway forwarding. Two-owner handler isolation is covered with synthetic trusted
+principals, not claimed as deployed identity integration.
 
 ### Setup and verification
 
-Apply `migrations/001_initial.sql` then `002_processing_attempts.sql` once, in
-order, to the **notification-owned** PostgreSQL database only. Tables include
+Apply `migrations/001_initial.sql`, `002_processing_attempts.sql` and
+`003_goal_rate_limit.sql` once, in order, to the **notification-owned** PostgreSQL database only. Tables include
 preferences, notifications, deliveries, inbox and processing journals, with
 foreign keys only within this database. No cross-service SQL is performed.
 `PostgresStore(connect)` accepts an injected DB-API connection factory with
-autocommit disabled; importing modules does not connect. No PostgreSQL driver,
-broker library, production dependency or environment variable was added.
+autocommit disabled; importing modules does not connect. Service manifests declare
+the existing approved PostgreSQL, broker and HTTP runtime stack; no new framework
+or environment variable was added.
 
 For local imports, add `services/notification` to `PYTHONPATH` and construct
 `Contracts(Path("contracts/schemas"))`. Package the unchanged schema artifacts
@@ -118,9 +119,9 @@ collection. The process-local workaround used for verification is:
 Tests cover valid creation, replay and capture deduplication, source/owner/version
 mismatches, final-state races, stale/incomplete evidence, preferences, safe
 content, transient-read backoff and transaction failures. PostgreSQL migration
-execution/concurrency, real RabbitMQ manual ACK/DLQ/recovery and authenticated
-HTTP integration remain **NOT RUN**: PostgreSQL/Docker tooling and approved live
-interfaces are unavailable. Unit doubles do not prove those operational gates.
+execution/concurrency, real RabbitMQ recovery and deployed Gateway authentication
+remain **NOT RUN** in the recorded environment. The Phase 2 worker/API adapters
+are implemented, but unit doubles do not prove those operational gates.
 
 ### Local list and mark-read operations (D4-NS-02)
 
@@ -144,20 +145,19 @@ with COALESCE, and reports the same local `NotificationNotFound` for absent and
 unowned IDs. Transaction failure rolls back. Missing or unrecognized principals
 raise `AuthenticationRequired` before storage access. Read/storage failures
 propagate instead of returning a fabricated empty feed or successful update.
-The future HTTP adapter must translate those failures to approved, safe responses
-without exposing database exceptions. No HTTP error mapping is implemented here.
+`notification.api.create_app` maps these operations to the accepted owner-scoped
+extension, requires a propagated UUID correlation ID and returns fixed safe errors
+without exposing database exceptions.
 
-No new migration, dependency, environment variable, contract, API route or
-Gateway edit is introduced by this part. Tests cover two-user isolation, guessed
+No shared contract or Gateway file is edited by this service change; the handler
+implements the already accepted additive Phase 2 route. Tests cover two-user isolation, guessed
 IDs, synthetic/invalid identity values, stable multi-page ordering, insertion
 between pages, cursor bounds, first-read timestamp preservation and failure
-rollback. PostgreSQL execution and real JWT/HTTP/frontend integration remain
-NOT RUN. D4-NS-02 frontend acceptance is **blocked**: the decision log has no
-accepted ICP-02 and the public v1 contract has no notification endpoints.
-ICP-08 service identity is accepted; concrete end-user authentication wiring is still needed. D1/D2/D4 must approve the extension and its
-pagination/error shape, record the integration ADR, then wire and test the actual
-Gateway/frontend handlers. These dataclasses do not become external DTOs by
-being included in service code.
+rollback. PostgreSQL execution and deployed JWT/Gateway/frontend integration
+remain NOT RUN. ICP-02/MVP-07 is accepted in
+`contracts/openapi/gateway.phase2.extension.v1.yaml`; D1 still owns Gateway
+routing/authentication and D2 owns the client. Local dataclasses do not become
+additional external DTOs merely by being included in service code.
 
 ### Preferences and processing retry policy (D4-NS-03)
 
@@ -180,9 +180,9 @@ DTOs or approved preference endpoints.
 
 `retry.RetryCoordinator(contracts, store, consumer, clock)` wraps the existing
 consumer. `run(event)` returns a local `Decision`: ack, retry with a delay, or
-dead_letter. It never publishes a retry message or ACKs itself. A future RabbitMQ
-adapter must apply that decision using D1-approved durable retry/DLQ topology and
-must leave raised storage failures unacknowledged. No routing keys are invented.
+dead_letter. `NotificationWorker` applies that decision with manual ACK/NACK and
+the configured durable retry/DLQ topology; raised storage failures remain
+unacknowledged when the worker connection is retired. No routing keys are invented.
 
 The coordinator first commits an attempt reservation with an expiring lease
 (60 seconds by default), then invokes the consumer in its own atomic business
@@ -211,27 +211,28 @@ offer uniqueness still provide the final duplicate-effect safeguards.
 `status_counts()` is an internal aggregate snapshot of processing states,
 rejections and stored delivery states; it returns no user/event IDs. There is no
 new metrics HTTP endpoint. `002_processing_attempts.sql` adds the processing and
-safe rejection tables; apply it before using the coordinator. This part adds no
-production dependencies, environment variables, public endpoints or contract
-changes. Tests cover retries/backoff/exhaustion, crash leases, stale-worker
+safe rejection tables, and `003_goal_rate_limit.sql` adds the owner/goal/time
+index used by the serialized hourly cap. Apply both after `001_initial.sql`.
+The service requirements declare the existing approved runtime stack. Tests cover
+retries/backoff/exhaustion, crash leases, stale-worker
 tokens, commit failures, durable failure history, duplicate effects, authenticated
 preferences and an opt-out during evidence fetching.
 
-Live migration/concurrency, RabbitMQ decisions/DLQ and authenticated preference
-UX remain NOT RUN/unwired. D4-NS-03's policy is implemented locally, while its
-operational acceptance still needs D1 deployment/identity/API coordination.
+Live migration/concurrency, RabbitMQ restart/DLQ and authenticated preference UX
+remain NOT RUN. D4-NS-03's policy and worker adapter are implemented locally,
+while operational acceptance still needs D1 deployment/identity coordination.
 
 ### Handoff
 
-V1 schemas, routing and public APIs remain unchanged. Use accepted ICP-01/08 and
-D1 service identity, coordinate packaging/driver and durable broker topology, then
-run this owned-DB migration and operational tests. D3 supplies immutable evidence
+Frozen v1 schemas and routing remain unchanged; the service implements the
+accepted additive Phase 2 notification API. Use accepted ICP-01/08 and D1 service
+identity, coordinate packaging/driver and durable broker topology, then run all
+three owned migrations and operational tests. D3 supplies immutable evidence
 and latest-source reads; GE supplies complete strict evaluations. A minimal
 schema-valid satisfied fixture lacking required domain gates is deliberately
-suppressed. D2 can review the local notification shape in the tests, but it is
-not a published DTO. D4-NS-02 list/mark-read integration requires ICP-02 approval;
-D4-NS-03 local channel/preference policy is implemented; live transport remains pending. An accepted coordinated
-integration ADR/review is still needed before enabling this consumer live.
+suppressed. D2 can consume the accepted notification DTO through Gateway.
+D4-NS-02 still requires D1 Gateway and D2 client wiring; D4-NS-03 local
+channel/preference policy is implemented; live deployment remains pending.
 
 - [Service specification](../../docs/implementation/06-notification.md)
 - [All seven services and integration constraints](../../docs/implementation/README.md)

@@ -35,7 +35,8 @@ def smoke() -> dict:
         owner = {'subject': s.data['goal']['owner_user_id']}
         app = create_app(reader=s.runtime.reader,
             authenticate=lambda: Principal(owner['subject']), ready=s.runtime.ready)
-        with TestClient(app) as client:
+        with TestClient(app, headers={
+                'X-Correlation-ID': s.data['event']['correlation_id']}) as client:
             path = '/v1/action-packages/' + package['package_id']
             response = client.get(path)
             assert response.status_code == 200

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from procurement_recorded import NOW, recorded_runtime
-from goal_evaluation.api import create_app
+from goal_evaluation.api import OwnerPrincipal, create_app
 from goal_evaluation.auth import ServiceAuthorizer
 from test_ge_api import SECRET, SCOPE, bearer
 from fastapi.testclient import TestClient
@@ -29,7 +29,9 @@ def run_case(*, original_cafe=False, confirmed=False):
     result = next(iter(s.store.data['evaluations'].values()))
     auth = ServiceAuthorizer(secret=SECRET, issuer='fixture-issuer', audience='fixture-audience',
                               required_scope=SCOPE, clock=lambda: NOW)
-    app = create_app(reader=s.runtime.reader, authorizer=auth, ready=s.runtime.ready)
+    app = create_app(reader=s.runtime.reader, authorizer=auth,
+        owner_authorizer=lambda: OwnerPrincipal(s.data['goal']['owner_user_id']),
+        goals=s.runtime.goals, ready=s.runtime.ready)
     with TestClient(app) as client:
         response = client.get('/internal/v1/evaluations/' + result['evaluation_id'],
             headers={'Authorization': bearer(), 'X-Correlation-ID': s.data['event']['correlation_id']})

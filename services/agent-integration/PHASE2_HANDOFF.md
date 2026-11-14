@@ -129,7 +129,7 @@ absence remains unknown and cannot be approved by an LLM or fixture fallback.
 | Disputed/changed/unsafe/stale evidence blocks use | PASS recorded | Current-evidence API/consumer tests, UUID-downgrade regressions |
 | Demo cannot silently select recorded stores/provenance | PASS unit | Explicit test-store guard and fixture-provenance rejection |
 | Real SQL persistence and broker ACK/DLQ/replay | NOT RUN | Optional tests need disposable AI DB/Rabbit; Docker/psql unavailable |
-| Real Gateway owner authentication / UI client / deployment | NOT RUN | D1 binding/contract merge and P0 live gates remain pending |
+| Real Gateway owner authentication / UI client / deployment | NOT RUN | D1 binding/routing and P0 live gates remain pending |
 
 From repository root, the default `python scripts/validate_contracts.py` and
 `python -m pytest -q` failed before checks because that interpreter lacks

@@ -32,22 +32,19 @@ changed evidence blocks use. See [Phase 2 handoff](PHASE2_HANDOFF.md) for schema
 compatibility, replay/cutover limitations, tested evidence and deployment gates.
 
 ADR-0003 selects the existing grouped `seller_orders` shape, and D1's Phase 2
-extension contains it. The repository still records coordinated merge evidence
-pending. Gateway routing, real owner authentication and publication of shared
-contracts remain D1-owned. The accepted older internal package sketch has a flat
+extension contains the accepted public DTO. Gateway routing and real owner
+authentication remain D1-owned. The older internal package sketch has a flat
 shape; no conflicting internal route was implemented here.
 
 The following sections preserve the Phase 1 implementation record. Current
 Phase 2 behavior and handoff above supersede earlier no-handler/no-worker notes.
 
-ICP-01/08 are accepted upstream under ADR-0002. ICP-02 and the grouped package
-shape are not recorded as approved in the repository decision log. The service-local proposal is
+ICP-01/08 are accepted under ADR-0002; ICP-02/MVP-07/08 and the grouped package
+shape are accepted under ADR-0003. The service-local schema is
 [`schemas/action-package.v1.schema.json`](schemas/action-package.v1.schema.json).
 [Contract rationale and release handoff](PACKAGE_CONTRACT_PROPOSAL.md) records
-that session instruction without inventing named approvers or an approval PR.
-Existing frozen contracts, shared approval ledger, Gateway configuration and ADRs
-are unchanged. D1 owns the coordinated publication of the shared contract and
-Gateway alignment and approval of the proposed `seller_orders` response.
+the shape and compatibility policy. Frozen v1 contracts remain unchanged. D1
+owns Gateway alignment and authenticated forwarding of the accepted response.
 
 ## Prepared packages (AI-01 prerequisite)
 
@@ -86,8 +83,9 @@ controls. This service never fetches source URLs or contacts a merchant.
 injected read-only GM/GE/DE adapters. It verifies IDs, rejects changed or untrusted
 source snapshots, rechecks runtime and freshness immediately before storage, and writes
 inbox plus package atomically. Transient reads have three attempts with 0.1/0.2
-second delays; broker ACK must occur only after successful return. The broker
-adapter still needs durable retry/DLQ wiring. No RabbitMQ client is installed.
+second delays. The Phase 2 worker performs manual ACK only after durable success
+and uses the configured retry/DLQ topology; D1 still owns deployed RabbitMQ
+provisioning and supervision.
 
 A newer checked capture of identical offer facts does not invalidate an otherwise
 fresh verification. Package citations and expiry continue using the original
@@ -112,32 +110,34 @@ authentication. Missing/unowned IDs are indistinguishable. Obsolete, paused or
 expired packages are never returned as actionable. Reads return detached JSON
 and never mutate, create, refresh or execute a package.
 
-No `/v1/action-packages/{package_id}` handler is supplied. D4-AI-02 remains gated
-on ICP-02, D1 identity/Gateway integration, and a coordinated shared contract
-that resolves the existing `seller_offers` versus proposed `seller_orders` shape.
-The local reader is the tested business boundary for that future adapter.
+`agent_integration.api.create_app` exposes `/v1/action-packages/{package_id}` for
+private Gateway forwarding. It requires D1's validated owner-auth dependency and
+a propagated UUID correlation ID, and returns the accepted grouped
+`seller_orders` DTO. ICP-02/MVP-07/08 and the Phase 2 extension are accepted;
+D1 identity/Gateway integration remains the deployment gate.
 
 ## Persistence and dependencies
 
-Apply `migrations/001_initial.sql` once to Agent Integration's owned PostgreSQL
-DB. It creates inbox/action_packages, unique dedup constraints, owner index,
-prepare-only payload checks and an immutable update/delete trigger. There are
-no cross-service database reads/foreign keys. `PostgresStore(connect)` accepts
-an injected DB-API connection factory with autocommit disabled. A concrete scoped
-PostgreSQL driver/configuration remains a deployment dependency.
+Apply `migrations/001_initial.sql` and then
+`migrations/002_processing_journal.sql` once to Agent Integration's owned
+PostgreSQL DB. They create inbox/action_packages, unique dedup constraints,
+prepare-only payload checks, the immutable update/delete trigger and the durable
+worker retry/rejection journal. There are no cross-service database reads/foreign
+keys. `PostgresStore(connect)` accepts an injected DB-API connection factory with
+autocommit disabled.
 
 When PostgreSQL tools and the scoped service database are available, run from
 the repository root (replace the placeholder with the owned service DSN):
 
 ```bash
 psql --dbname='<agent-integration service DSN>' --file=services/agent-integration/migrations/001_initial.sql
+psql --dbname='<agent-integration service DSN>' --file=services/agent-integration/migrations/002_processing_journal.sql
 ```
 
-Service dependencies use the existing JSON Schema validator. No HTTP framework
-or HTTP test client is required by this foundation. The service requirements were installed
-in the temporary test environment with explicit tool approval. No root dependency
-file or environment variable was changed. Deployment must package the unchanged
-frozen schemas plus this service's proposed package schema after coordinated approval.
+Service dependencies declare the existing approved JSON Schema, FastAPI,
+Pydantic, psycopg, pika and Uvicorn stack. No root dependency file or environment
+variable was changed. Deployment must package the unchanged frozen schemas plus
+the service-local package schema that matches the accepted Phase 2 extension.
 
 From the repository root:
 

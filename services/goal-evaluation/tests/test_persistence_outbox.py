@@ -94,6 +94,12 @@ class MemoryDB:
     def get_evaluation(self, evaluation_id):
         return copy.deepcopy(self.data['evaluations'].get(evaluation_id))
 
+    def list_evaluations(self, goal_id, goal_version, limit):
+        rows = [copy.deepcopy(result) for result in self.data['evaluations'].values()
+                if (result['goal_id'], result['goal_version']) == (goal_id, goal_version)]
+        rows.sort(key=lambda result: (result['evaluated_at'], result['evaluation_id']), reverse=True)
+        return rows[:limit]
+
     def next_pending(self, now):
         for event_id, row in sorted(self.data['outbox'].items()):
             if row['status'] == 'pending' and row['due'] <= now:

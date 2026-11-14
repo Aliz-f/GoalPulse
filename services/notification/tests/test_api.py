@@ -15,6 +15,8 @@ from test_owned_reads import (
 from notification.api import create_app
 from notification.reads import VerifiedPrincipal
 
+CORRELATION = identifier(500)
+
 
 @pytest.fixture
 def rig():
@@ -32,7 +34,7 @@ def rig():
     ready = Mock(return_value=True)
     app = create_app(store=store, authorize_read=read, authorize_write=write,
                      clock=lambda: NOW, ready=ready)
-    return store, context, ready, TestClient(app)
+    return store, context, ready, TestClient(app, headers={'X-Correlation-ID': CORRELATION})
 
 
 def test_lists_owner_only_with_exact_extension_schema(rig):
@@ -40,6 +42,7 @@ def test_lists_owner_only_with_exact_extension_schema(rig):
     response = client.get('/v1/notifications?owner_user_id=' + USER_B)
     assert response.status_code == 200
     assert response.headers['cache-control'] == 'no-store'
+    assert response.headers['x-correlation-id'] == CORRELATION
     assert [row['notification_id'] for row in response.json()] == [identifier(3), identifier(1)]
     root = Path(__file__).resolve().parents[3]
     schema = yaml.safe_load((root / 'contracts/openapi/gateway.phase2.extension.v1.yaml').read_text())
@@ -58,6 +61,7 @@ def test_mark_read_preserves_first_time_and_returns_empty_204(rig):
     for _ in range(2):
         response = client.patch(path)
         assert response.status_code == 204 and response.content == b''
+        assert response.headers['x-correlation-id'] == CORRELATION
     assert store.rows[identifier(1)].item.read_at == NOW
     assert any(row['is_read'] for row in client.get('/v1/notifications').json())
 
@@ -92,6 +96,18 @@ def test_required_write_policy_cannot_be_bypassed_with_read_auth(rig):
 def test_invalid_page_limit_rejected(rig, limit):
     store, _, _, client = rig
     assert client.get(f'/v1/notifications?limit={limit}').status_code == 422
+    assert store.calls == 0
+
+
+def test_correlation_is_required_and_must_be_uuid(rig):
+    store, _, _, client = rig
+    correlation = client.headers.pop('x-correlation-id')
+    try:
+        assert client.get('/v1/notifications').status_code == 422
+        assert client.patch(f'/v1/notifications/{identifier(1)}/read').status_code == 422
+    finally:
+        client.headers['x-correlation-id'] = correlation
+    assert client.get('/v1/notifications', headers={'X-Correlation-ID': 'invalid'}).status_code == 422
     assert store.calls == 0
 
 

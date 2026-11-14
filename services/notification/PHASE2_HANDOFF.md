@@ -96,11 +96,10 @@ will deduplicate. The current service had no established live deployment.
 
 Frozen schemas, Gateway v1 and the four event routes are unchanged. Handler DTO
 tests validate the actual JSON against `gateway.phase2.extension.v1.yaml`.
-Current ADR-0003 records merge/PR evidence pending, so this factory is **not
-authorization to expose the extension**. D1 owns its coordinated approval,
-Gateway routing, service-JWT/owner-forwarding dependencies and browser CSRF/
-Origin checks. No unsigned identity adapter or browser cookie parser is provided
-by Notification. Synthetic principals are used only by explicit tests.
+ADR-0003 accepts this additive extension, but this factory must remain private.
+D1 owns Gateway routing, service-JWT/owner-forwarding dependencies and browser
+CSRF/Origin checks. No unsigned identity adapter or browser cookie parser is
+provided by Notification. Synthetic principals are used only by explicit tests.
 
 The private HTTP factory requires `store`, `authorize_read`, `authorize_write`,
 UTC `clock` and `ready` callbacks. D1 must check migrations/owned DB/broker and
@@ -126,7 +125,7 @@ starting the factory. No cross-service SQL or data migration is performed.
 | Two users cannot read/mark each other's notifications | PASS handler integration | Required synthetic auth dependencies; exact DTO tests; identical missing/unowned 404 |
 | Manual ACK/retry/dead-letter ordering | PASS adapter tests | Injected broker; failed journal/commit leaves delivery unacknowledged |
 | Persisted read state and concurrent cap through PostgreSQL | NOT RUN | Two optional live tests require GOALPULSE_NS_TEST_DSN; no local Docker/psql |
-| Real broker/DB restart recovery and end-to-end authenticated Gateway | NOT RUN | Needs D1 stack/identity binding, complete GE runtime and approved extension |
+| Real broker/DB restart recovery and end-to-end authenticated Gateway | NOT RUN | Needs D1 stack/identity binding and complete live GE runtime |
 | No purchase-success or external delivery claims | PASS recorded | Constant opportunity/checkout-revalidation copy; no purchase/email adapter |
 
 Executed from repository root:

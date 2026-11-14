@@ -17,7 +17,7 @@ from goal_evaluation.domain import Contracts
 from goal_evaluation.processing import RetryableUpstreamError, Subscription
 from goal_evaluation.readers import (
     EvidenceHttpReader, GoalHttpReader, HttpTransport, InternalClient,
-    InternalReadError, SubscriptionHttpReader,
+    InternalNotFound, InternalReadError, SubscriptionHttpReader,
 )
 
 CORRELATION = str(uuid4())
@@ -123,10 +123,16 @@ def test_only_transient_status_is_retryable(rig, status):
     assert rig[0].get.call_count == 1  # orchestration owns bounded retries
 
 
-@pytest.mark.parametrize('status', [301, 302, 307, 400, 401, 403, 404, 409, 422])
+@pytest.mark.parametrize('status', [301, 302, 307, 400, 401, 403, 409, 422])
 def test_permanent_status_never_falls_back_or_leaks_response(rig, status):
     respond(rig, {'secret': 'sensitive'}, status)
     with pytest.raises(InternalReadError, match='^internal_read_rejected$'):
+        rig[2].get('/internal/v1/test', 'read', CORRELATION)
+
+
+def test_not_found_is_typed_without_leaking_response(rig):
+    respond(rig, {'secret': 'sensitive'}, 404)
+    with pytest.raises(InternalNotFound, match='^internal_resource_not_found$'):
         rig[2].get('/internal/v1/test', 'read', CORRELATION)
 
 

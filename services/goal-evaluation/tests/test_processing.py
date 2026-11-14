@@ -193,6 +193,18 @@ def test_lagging_checked_index_cannot_restore_old_offer_after_new_trigger(rig):
     assert not rig.store.results and not rig.store.inbox
 
 
+@pytest.mark.parametrize('observed_at', ['2026-11-14T09:59:00Z', '2026-11-14T10:00:00Z'])
+def test_lagging_unverified_predecessor_retries_checked_trigger(rig, observed_at):
+    predecessor = copy.deepcopy(rig.observation)
+    predecessor.update(observation_id='00000000-0000-4000-8000-000000000000',
+                       observed_at=observed_at)
+    predecessor['evidence']['reliability'] = 'unverified'
+    rig.evidence.latest_for_source.return_value = [predecessor]
+    with pytest.raises(RetryableUpstreamError, match='canonical_evidence_not_current'):
+        rig.consumer.handle(rig.event)
+    assert not rig.store.results and not rig.store.inbox
+
+
 def test_stale_cache_not_refreshed_by_event_time(rig):
     rig.observation['observed_at'] = '2026-11-14T08:00:00Z'
     rig.consumer.handle(rig.event)

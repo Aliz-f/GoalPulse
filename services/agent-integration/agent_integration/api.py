@@ -5,7 +5,7 @@ Gateway. No header-based identity fallback or write/checkout route exists.
 """
 
 from typing import Callable
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 
@@ -27,10 +27,10 @@ def create_app(*, reader: PackageReader, authenticate: Callable,
     @app.get('/v1/action-packages/{package_id}')
     def get_package(package_id: UUID, response: Response,
                     principal=Depends(authenticate),
-                    correlation: UUID | None = Header(default=None, alias='X-Correlation-ID')):
+                    correlation: UUID = Header(alias='X-Correlation-ID')):
         if not isinstance(principal, Principal):
             raise HTTPException(401, 'authentication required')
-        correlation_id = str(correlation or uuid4())
+        correlation_id = str(correlation)
         try:
             package = reader.get(str(package_id), principal, correlation_id)
         except AuthenticationRequired:

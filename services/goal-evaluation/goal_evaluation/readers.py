@@ -18,6 +18,10 @@ class InternalReadError(ValueError):
     """Permanent upstream failure, with a fixed code and no response contents."""
 
 
+class InternalNotFound(InternalReadError):
+    """The requested internal resource does not exist."""
+
+
 class Transport(Protocol):
     def get(self, url: str, headers: dict[str, str]) -> tuple[int, bytes]: ...
 
@@ -75,6 +79,8 @@ class InternalClient:
         })
         if status in {408, 429, 500, 502, 503, 504}:
             raise RetryableUpstreamError('internal_read_unavailable')
+        if status == 404:
+            raise InternalNotFound('internal_resource_not_found')
         if status != 200:
             raise InternalReadError('internal_read_rejected')
         try:

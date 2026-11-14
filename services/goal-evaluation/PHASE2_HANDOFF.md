@@ -19,20 +19,21 @@ Demo rejects fixture provenance. Returned missing costs and capture timestamps
 are preserved exactly; these adapters cannot promote evidence to checked.
 
 Token issuance must be bound to D1's accepted ICP-08 issuer before deployment.
-Frozen schemas, HTTP operations and event routing are unchanged. The continuation
-below adds owned runtime requirements and migration 004; it supersedes the
-original reader-only increment's dependency/migration notes.
+Frozen v1 schemas/internal operations and event routing are unchanged; the
+accepted additive Phase 2 evaluation-history operation is implemented. The
+continuation below adds owned runtime requirements and migration 004; it
+supersedes the original reader-only increment's dependency/migration notes.
 
 ## P0 API, worker and policy continuation
 
-- `api.py` exposes only the accepted private
-  `GET /internal/v1/evaluations/{evaluation_id}`, plus private health/readiness.
-  It uses `ImmutableEvaluationReader` to validate/detach the exact saved result,
-  including its original goal version and timestamps. GET does not recompute
-  history or make old evidence actionable. Required UUID correlation is returned;
-  no-store applies to responses. Missing IDs return 404 and storage faults return
-  a fixed, redacted 503. No proposed public evaluation-history operation was
-  invented or routed.
+- `api.py` exposes the accepted private
+  `GET /internal/v1/evaluations/{evaluation_id}`, the owner-scoped
+  `GET /v1/goals/{goal_id}/evaluations` from the accepted Phase 2 extension, and
+  private health/readiness. `ImmutableEvaluationReader` validates and detaches
+  saved results; the owner route rechecks GM ownership and returns only the exact
+  current goal version, newest first. GET never recomputes an evaluation or makes
+  old evidence actionable. UUID correlation is required/returned and all responses
+  use no-store. Cross-owner and missing goals are indistinguishable.
 - `auth.py` validates the existing D1 HS256 ICP-08 profile: explicit >=32-character
   secret, issuer, audience, service token kind, UUID subject, expiry/not-before
   and operation scope. Missing/forged/user/wrong-scope tokens return 403. It
@@ -151,8 +152,8 @@ changes; verify existing v1 fixtures still validate.
   restart/concurrency recovery, connection deadlines and deployment budgets.
 - Audit any previously populated Phase 1 fingerprint history before cutover;
   do not guess old monetary facts or rewrite immutable evaluations.
-- D1 records coordinated Phase 2 extension merge approval; current ADR states
-  merge/PR evidence pending. Public reads must not ship against a proposal.
+- D1 binds the already accepted Phase 2 extension to authenticated Gateway
+  forwarding; the D4 handler must not be exposed directly.
 - D3 checker implementation and reproducible provenance are required before
   claiming live checked-evidence acceptance.
 

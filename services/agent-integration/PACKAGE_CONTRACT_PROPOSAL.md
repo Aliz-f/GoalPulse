@@ -1,20 +1,18 @@
 # Action Package contract — grouped DTO rationale and release handoff
 
 **Phase 2 update:** ADR-0003/MVP-08 selects the existing grouped `seller_orders`
-schema, and `contracts/openapi/gateway.phase2.extension.v1.yaml` contains that
-shape. Its coordinated merge evidence is still pending. The private app factory
-and recorded schema tests are now implemented; real Gateway routing, identity
-binding and shared contract publication remain D1-owned. The user authorized
-recorded P1 preparation before the live P0 gate. See `PHASE2_HANDOFF.md`.
+schema, and the accepted `contracts/openapi/gateway.phase2.extension.v1.yaml`
+contains that shape. The private app factory and recorded schema tests are
+implemented; real Gateway routing and identity binding remain D1-owned. The user
+authorized recorded P1 preparation before the live P0 gate. See `PHASE2_HANDOFF.md`.
 
 The remainder records the original Phase 1 proposal/rationale. Its earlier
 statements that no handler or grouped extension exists are historical.
 
-Status: the grouped `seller_orders` shape is implemented only as a service-local
-proposal and persistence artifact. ICP-02, the shared schema, public route and
-Gateway response remain unapproved. Developer 1 owns a coordinated contract/ADR
-release with D2/D3/D4 review. No frozen v1 interface or approval ledger is
-modified here, and no `/v1/action-packages/{package_id}` handler is supplied.
+Status: the service-local grouped schema, immutable persistence and private
+`/v1/action-packages/{package_id}` handler implement the accepted Phase 2
+extension. Frozen v1 interfaces remain unchanged. Developer 1 owns Gateway
+routing/authentication and D2 owns client integration.
 
 Implementation policy: no automatic successor/refresh for an identical offer.
 Duplicate evaluation or goal/version/offer returns no second package, including
@@ -150,7 +148,7 @@ private DB reads. Public/internal endpoints remain separately gated by ICP-01/02
    and Gateway tests before enabling export. No unsolicited external callback or
    checkout/payment/credential capability is part of this rollout.
 
-No ICP-02 approval, shared ADR or approval PR is recorded. Service-local schema:
-`schemas/action-package.v1.schema.json`. Shared contract publication and Gateway
-alignment remain a D1 handoff. The design rationale above is retained, with its
-conservative dedup alternative proposed for review.
+ICP-02/MVP-07/08 and the grouped shared extension are accepted. The service-local
+schema remains `schemas/action-package.v1.schema.json` and is pinned to that
+extension by tests. Gateway deployment alignment remains a D1 handoff. The design
+rationale above is retained, including its conservative dedup policy.

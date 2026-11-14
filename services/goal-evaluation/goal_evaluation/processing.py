@@ -196,11 +196,19 @@ class EvidenceProcessor:
                             newest = max(seen.values(), key=lambda row: (
                                 datetime.fromisoformat(row['observed_at'].replace('Z', '+00:00')),
                                 row['observation_id']))
-                            if (newest['evidence']['reliability'] == 'checked'
-                                    and datetime.fromisoformat(triggered['observed_at'].replace('Z', '+00:00')) >
-                                    datetime.fromisoformat(newest['observed_at'].replace('Z', '+00:00'))):
-                                # Do not restore an old cheap offer while the
-                                # newest-first read lags behind a newer trigger.
+                            triggered_at = datetime.fromisoformat(
+                                triggered['observed_at'].replace('Z', '+00:00'))
+                            newest_at = datetime.fromisoformat(
+                                newest['observed_at'].replace('Z', '+00:00'))
+                            if (triggered_at > newest_at or
+                                    (triggered_at == newest_at
+                                     and triggered['evidence']['reliability'] == 'checked'
+                                     and newest['evidence']['reliability'] == 'unverified')):
+                                # The exact trigger was committed before its event.
+                                # A latest read that still exposes an older capture,
+                                # or the unverified predecessor of a same-time checked
+                                # capture, is transiently incomplete. Do not consume
+                                # the event into an unknown evaluation.
                                 raise RetryableUpstreamError('canonical_evidence_not_current')
                     cache[linked_source] = (max(seen.values(), key=lambda row: (
                         datetime.fromisoformat(row['observed_at'].replace('Z', '+00:00')),

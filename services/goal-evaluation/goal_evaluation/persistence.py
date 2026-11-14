@@ -55,11 +55,12 @@ class EvaluationTransaction(Protocol):
     def reserve_offer(self, result: Document, fingerprint: str, event_id: str) -> bool: ...
     def enqueue_event(self, event: Document) -> None: ...
     def get_evaluation(self, evaluation_id: str) -> Document | None: ...
+    def list_evaluations(self, goal_id: str, goal_version: int, limit: int) -> list[Document]: ...
     def legacy_offer_reserved(self, result: Document, fingerprint: str) -> bool: ...
 
 
 class ImmutableEvaluationReader:
-    """Validated local read boundary, not an authenticated HTTP endpoint."""
+    """Validated immutable reads used by authenticated HTTP adapters."""
 
     def __init__(self, contracts: Contracts, store: Store):
         self.contracts, self.store = contracts, store
@@ -73,6 +74,22 @@ class ImmutableEvaluationReader:
                 if result['evaluation_id'] != evaluation_id:
                     raise ValueError('Stored evaluation identity mismatch')
             return copy.deepcopy(result)
+
+    def list_for_goal(self, goal_id: str, goal_version: int, limit: int) -> list[Document]:
+        uuid_string(goal_id)
+        if type(goal_version) is not int or goal_version < 1:
+            raise ValueError('Invalid goal version')
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError('Invalid evaluation history limit')
+        with self.store.transaction() as transaction:
+            results = transaction.list_evaluations(goal_id, goal_version, limit)
+            if not isinstance(results, list) or len(results) > limit:
+                raise ValueError('Invalid stored evaluation history')
+            for result in results:
+                self.contracts.validate('goal-evaluation', result)
+                if (result['goal_id'], result['goal_version']) != (goal_id, goal_version):
+                    raise ValueError('Stored evaluation history identity mismatch')
+            return copy.deepcopy(results)
 
 
 class VerificationGuard:
@@ -237,6 +254,20 @@ class PostgresEvaluationTransaction(PostgresTransaction):
         if row is None:
             return None
         return copy.deepcopy(json.loads(row[0]) if isinstance(row[0], str) else row[0])
+
+    def list_evaluations(self, goal_id: str, goal_version: int, limit: int) -> list[Document]:
+        uuid_string(goal_id)
+        if type(goal_version) is not int or goal_version < 1:
+            raise ValueError('Invalid goal version')
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError('Invalid evaluation history limit')
+        self.cursor.execute(
+            'SELECT payload FROM evaluations WHERE goal_id=%s AND goal_version=%s '
+            'ORDER BY evaluated_at DESC,evaluation_id DESC LIMIT %s',
+            (goal_id, goal_version, limit),
+        )
+        return [copy.deepcopy(json.loads(row[0]) if isinstance(row[0], str) else row[0])
+                for row in self.cursor.fetchall()]
 
     def next_pending(self, now: datetime):
         self.cursor.execute(
