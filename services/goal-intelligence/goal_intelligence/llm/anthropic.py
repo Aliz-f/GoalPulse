@@ -69,16 +69,20 @@ class AnthropicExtractor:
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-haiku-4-5-20251001",
+        model: str,
         *,
-        max_tokens: int = 800,
+        max_tokens: int = 4096,
+        effort: str | None = None,
         transport: Transport = _urllib_transport,
     ) -> None:
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY is required for the anthropic provider")
+        if not model:
+            raise ValueError("GI_LLM_MODEL is required for the anthropic provider")
         self._api_key = api_key
         self.model_id = model
         self._max_tokens = max_tokens
+        self._effort = effort or None
         self._transport = transport
 
     def __repr__(self) -> str:  # never show the key
@@ -96,13 +100,20 @@ class AnthropicExtractor:
             f"<user_message>{json.dumps(request.message)}</user_message>\n"
             "Return the JSON object now."
         )
-        return {
+        # Current Claude models (Claude 5 family and later) reject non-default
+        # temperature/top_p/top_k with a 400, and think by default, with thinking tokens
+        # counting toward max_tokens. So: no sampling parameters, room for thinking, and
+        # an optional effort level (GI_LLM_EFFORT) to keep extraction fast and cheap.
+        # Thinking blocks are ignored below: only "text" blocks are read.
+        body: dict[str, Any] = {
             "model": self.model_id,
             "max_tokens": self._max_tokens,
-            "temperature": 0,
             "system": SYSTEM_PROMPT,
             "messages": [{"role": "user", "content": user}],
         }
+        if self._effort:
+            body["output_config"] = {"effort": self._effort}
+        return body
 
     def extract(self, request: ExtractionRequest, *, timeout_s: float) -> ExtractionPatch:
         body = json.dumps(self._body(request)).encode()
@@ -121,12 +132,21 @@ class AnthropicExtractor:
             err.transient = True
             raise err
         if status != 200:
-            raise ExtractorError(f"model request rejected ({status})")
+            # Distinct, secret-free codes so a wrong key or an unavailable model is obvious
+            # in llm_attempts and the smoke test. None of these are retried.
+            err = ExtractorError(f"model request rejected ({status})")
+            err.code = {401: "provider_auth_failed", 403: "provider_forbidden", 404: "model_not_found"}.get(
+                status, "provider_rejected_request"
+            )
+            raise err
         try:
             payload = json.loads(raw)
             text = "".join(b.get("text", "") for b in payload.get("content", []) if b.get("type") == "text")
+            truncated = payload.get("stop_reason") == "max_tokens"
         except (ValueError, AttributeError, TypeError) as exc:
             raise ExtractorMalformedOutput("unreadable model response") from exc
+        if truncated:
+            raise ExtractorMalformedOutput("model response was cut off at the token limit")
         text = text.strip()
         if text.startswith("```"):
             text = text.strip("`").removeprefix("json").strip()

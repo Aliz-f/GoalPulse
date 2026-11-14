@@ -9,7 +9,7 @@ import { Icon, Notice } from "@/components/Icons";
 import { Icp02Pending } from "@/components/Icp02Pending";
 import { ApiError, adviceFor } from "@/lib/api/errors";
 import { getProposedApi } from "@/lib/api/proposed";
-import { formatTimestamp } from "@/lib/format";
+import { formatTimestamp, timestampTitle } from "@/lib/format";
 import { NOT_ORDERED, RECHECK, isExpired, money, offerRows, packageText } from "@/lib/packages";
 import type { ActionPackage } from "@/lib/proposed";
 
@@ -97,8 +97,8 @@ export function PackageView() {
       </Notice>
       <Notice tone="warning">{RECHECK}</Notice>
       <p className="hint">
-        Prepared <time dateTime={pkg.created_at} title={`${pkg.created_at} (UTC)`}>{formatTimestamp(pkg.created_at)}</time> ·
-        valid until <time dateTime={pkg.expires_at} title={`${pkg.expires_at} (UTC)`}>{formatTimestamp(pkg.expires_at)}</time>
+        Prepared <time dateTime={pkg.created_at} title={timestampTitle(pkg.created_at)}>{formatTimestamp(pkg.created_at)}</time> ·
+        valid until <time dateTime={pkg.expires_at} title={timestampTitle(pkg.expires_at)}>{formatTimestamp(pkg.expires_at)}</time>
       </p>
 
       <div className="card">

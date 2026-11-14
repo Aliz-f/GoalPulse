@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Notice } from "@/components/Icons";
-import { getApi, sessionCache, type Turn } from "@/lib/api";
+import { API_MODE, getApi, sessionCache, type Turn } from "@/lib/api";
 import { adviceFor } from "@/lib/api/errors";
 
 const MAX_CHARS = 2000;
@@ -65,6 +65,13 @@ export function NewGoalForm() {
       <p id="goal-help" className="hint">
         GoalPulse asks a few questions, shows you a summary, and only starts watching after you confirm. It never buys
         anything for you.
+        {API_MODE === "gateway" && (
+          <>
+            {" "}
+            What you type here and in your answers is sent to Anthropic&apos;s Claude to understand your goal, so
+            don&apos;t include personal or confidential details.
+          </>
+        )}
       </p>
       <div className="examples" aria-label="Examples">
         {EXAMPLES.map((ex) => (
