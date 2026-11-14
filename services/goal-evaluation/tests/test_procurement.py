@@ -36,6 +36,7 @@ def basket():
     goal = load('goal-spec.procurement.json')
     for item in goal['criteria']['items']:
         item['requirements'] = []
+        item['quantity'] = 1
     observations = [offer('Lactose-free milk', 'L', 115, 'milk.test'),
                     offer('Coffee beans', 'kg', 1600, 'coffee.test')]
     return goal, observations
@@ -56,7 +57,7 @@ def test_complete_fixture_basket_and_exact_total(basket):
     before = copy.deepcopy(basket)
     result = evaluate(goal, observations)
     assert result['is_opportunity_verified']
-    assert '19300 EUR cents' in condition(result, 'total_within_budget')['reason']
+    assert '2715 EUR cents' in condition(result, 'total_within_budget')['reason']
     assert result['candidate_observation_ids'] == sorted(o['observation_id'] for o in observations)
     assert result['progress'] == dict(metric='savings_progress', value=100.0, unit='percent')
     assert evaluate(goal, observations[::-1]) == result
@@ -70,6 +71,16 @@ def test_default_normalization_is_unconfirmed(basket):
     assert result['status'] == 'unknown'
     assert condition(result, 'units_compatible')['status'] == 'unknown'
     assert 'progress' not in result
+
+
+def test_original_cafe_quantities_need_available_quantity_evidence(basket):
+    goal = load('goal-spec.procurement.json')
+    for item in goal['criteria']['items']:
+        item['requirements'] = []
+    result = evaluate(goal, basket[1])
+    assert result['status'] == 'unknown'
+    assert not result['is_opportunity_verified']
+    assert condition(result, 'availability')['status'] == 'unknown'
 
 
 def test_original_cafe_quality_cannot_be_inferred(basket):
@@ -118,7 +129,7 @@ def test_shared_merchant_shipping_once_and_conflicts_unknown(basket):
         o['source_url'] = 'https://same.test/' + o['observation_id']
     result = evaluate(goal, observations)
     assert result['is_opportunity_verified']
-    assert '18800 EUR cents' in condition(result, 'total_within_budget')['reason']
+    assert '2215 EUR cents' in condition(result, 'total_within_budget')['reason']
     observations[1]['shipping_eur_cents'] = 600
     result = evaluate(goal, observations)
     assert result['status'] == 'unknown'
@@ -128,15 +139,15 @@ def test_shared_merchant_shipping_once_and_conflicts_unknown(basket):
 def test_seller_limit_changes_optimal_basket(basket):
     goal, observations = basket
     goal['criteria']['max_total_eur_cents'] = 30000
-    shared = [offer('Lactose-free milk', 'L', 200, 'shared.test', shipping=0),
-              offer('Coffee beans', 'kg', 2000, 'shared.test', shipping=0)]
+    shared = [offer('Lactose-free milk', 'L', 1000, 'shared.test', shipping=0),
+              offer('Coffee beans', 'kg', 3000, 'shared.test', shipping=0)]
     result = evaluate(goal, observations + shared)
     assert set(result['candidate_observation_ids']) == {o['observation_id'] for o in observations}
     goal['criteria']['max_distinct_sellers'] = 1
     result = evaluate(goal, observations + shared)
     assert result['is_opportunity_verified']
     assert set(result['candidate_observation_ids']) == {o['observation_id'] for o in shared}
-    assert '24000 EUR cents' in condition(result, 'total_within_budget')['reason']
+    assert '4000 EUR cents' in condition(result, 'total_within_budget')['reason']
 
 
 def test_three_sellers_vs_one_full_shipping_cost(basket):
@@ -159,7 +170,9 @@ def test_round_half_up_fractional_lines_and_additional_tax_once(basket):
     observations[1].update(unit_price_eur_cents=101, shipping_eur_cents=0, tax_eur_cents=2)
     goal['criteria']['max_total_eur_cents'] = 269
     result = evaluate(goal, observations)
-    assert result['is_opportunity_verified']
+    assert result['status'] == 'unknown'
+    assert not result['is_opportunity_verified']
+    assert condition(result, 'availability')['status'] == 'unknown'
     assert '[13, 253]' in condition(result, 'total_within_budget')['reason']
     goal['criteria']['max_total_eur_cents'] = 268
     assert evaluate(goal, observations)['status'] == 'unsatisfied'

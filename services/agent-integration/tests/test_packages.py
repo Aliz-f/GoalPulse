@@ -14,7 +14,7 @@ from jsonschema import ValidationError
 SERVICE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVICE))
 from agent_integration.eligibility import Contracts, HandoffEligibility, Runtime, PROCUREMENT_CODES
-from agent_integration.packages import PackageBuilder, PackageContract
+from agent_integration.packages import PackageBuilder, PackageContract, amount
 from agent_integration.service import PackageConsumer, PackageReader, Principal, PackageNotFound, PackageGone, RetryableReadError
 from agent_integration.store import PostgresStore, PostgresTransaction
 from test_eligibility import inputs, load, NOW
@@ -147,11 +147,15 @@ def test_owner_reads_only_copy_and_other_user_gets_not_found(setup):
     s = setup
     p = create(s)
     owner = Principal(s.inputs['goal']['owner_user_id'])
-    fetched = s.reader.get(p['package_id'], owner)
+    correlation = s.inputs['event']['correlation_id']
+    fetched = s.reader.get(p['package_id'], owner, correlation)
     fetched['seller_orders'].clear()
-    assert s.reader.get(p['package_id'], owner) == p
+    assert s.reader.get(p['package_id'], owner, correlation) == p
+    s.goals.runtime.assert_called_with(p['goal_id'], correlation)
     with pytest.raises(PackageNotFound):
-        s.reader.get(p['package_id'], Principal(str(uuid4())))
+        s.reader.get(p['package_id'], Principal(str(uuid4())), correlation)
+    with pytest.raises(ValueError):
+        s.reader.get(p['package_id'], owner, 'not-a-correlation-id')
 
 
 @pytest.mark.parametrize('change', ['expired', 'paused', 'version', 'owner'])
@@ -165,7 +169,7 @@ def test_read_cannot_present_obsolete_or_expired_as_actionable(setup, change):
         s.goals.runtime.return_value = Runtime(r.goal_id, str(uuid4()) if change == 'owner' else r.owner_user_id,
             2 if change == 'version' else 1, 'paused' if change == 'paused' else 'active')
     with pytest.raises(PackageNotFound if change == 'owner' else PackageGone):
-        s.reader.get(p['package_id'], Principal(r.owner_user_id))
+        s.reader.get(p['package_id'], Principal(r.owner_user_id), s.inputs['event']['correlation_id'])
 
 
 def test_slow_authoritative_read_rechecks_expiry(setup):
@@ -176,7 +180,8 @@ def test_slow_authoritative_read_rechecks_expiry(setup):
         return s.inputs['runtime']
     s.goals.runtime.side_effect = runtime
     with pytest.raises(PackageGone):
-        s.reader.get(p['package_id'], Principal(s.inputs['runtime'].owner_user_id))
+        s.reader.get(p['package_id'], Principal(s.inputs['runtime'].owner_user_id),
+                     s.inputs['event']['correlation_id'])
 
 
 def test_bounded_read_retry_and_source_supersession(setup):
@@ -202,13 +207,13 @@ def test_schema_rejects_execution_extra_secret_fields_and_wrong_totals(setup):
         s.contract.validate(dict(package, total_eur_cents=0))
 
 
-def test_procurement_shared_shipping_decimal_lines_and_normalization_gate(setup):
+def test_procurement_shared_shipping_and_normalization_gate(setup):
     s = setup
     goal = load('goal-spec.procurement.json')
     for item in goal['criteria']['items']:
         item['requirements'] = []
-    goal['criteria']['items'][0]['quantity'] = 0.125
-    goal['criteria']['items'][1]['quantity'] = 2.5
+    goal['criteria']['items'][0]['quantity'] = 1
+    goal['criteria']['items'][1]['quantity'] = 1
     base = s.inputs['observations'][0]
     milk = dict(base, product_name='Lactose-free milk', selling_unit='L', unit_price_eur_cents=100,
                 source_url='https://same.example.com/milk', shipping_eur_cents=500, tax_eur_cents=1)
@@ -225,11 +230,33 @@ def test_procurement_shared_shipping_decimal_lines_and_normalization_gate(setup)
     assert s.builder.build(event, goal, evaluation, [milk, coffee], runtime, NOW) is None
     builder = PackageBuilder(HandoffEligibility(s.contracts), s.contract, procurement_normalization_confirmed=True)
     package = builder.build(event, goal, evaluation, [milk, coffee], runtime, NOW)
-    assert package['total_eur_cents'] == 769  # 13 + 253 + 1 + 2 + 500
+    assert package['total_eur_cents'] == 704  # 100 + 101 + 1 + 2 + 500
     assert len(package['seller_orders']) == 1
-    assert sorted(i['total_item_eur_cents'] for i in package['seller_orders'][0]['items']) == [13, 253]
+    assert sorted(i['total_item_eur_cents'] for i in package['seller_orders'][0]['items']) == [100, 101]
+    assert amount('0.125', 100) == 13
+    assert amount('2.5', 101) == 253
     coffee['shipping_eur_cents'] = 600
     assert builder.build(event, goal, evaluation, [milk, coffee], runtime, NOW) is None
+
+
+def test_procurement_fractional_or_multi_unit_quantity_is_not_packaged(setup):
+    s = setup
+    goal = load('goal-spec.procurement.json')
+    for item in goal['criteria']['items']:
+        item['requirements'] = []
+    base = s.inputs['observations'][0]
+    observations = [dict(base, product_name='Lactose-free milk', selling_unit='L'),
+                    dict(base, product_name='Coffee beans', selling_unit='kg',
+                         observation_id=str(uuid4()), source_id=str(uuid4()))]
+    ids = [o['observation_id'] for o in observations]
+    evaluation = dict(s.inputs['evaluation'], goal_id=goal['goal_id'], candidate_observation_ids=ids,
+        conditions=[dict(code=c, status='satisfied', reason='Synthetic basket gate', observation_ids=ids)
+                    for c in sorted(PROCUREMENT_CODES)])
+    event = copy.deepcopy(s.inputs['event'])
+    event['aggregate_id'] = event['payload']['goal_id'] = goal['goal_id']
+    runtime = Runtime(goal['goal_id'], goal['owner_user_id'], 1, 'active')
+    builder = PackageBuilder(HandoffEligibility(s.contracts), s.contract, procurement_normalization_confirmed=True)
+    assert builder.build(event, goal, evaluation, observations, runtime, NOW) is None
 
 
 def test_postgres_owner_predicate_and_parameterized_writes(setup):
@@ -259,14 +286,10 @@ def test_generated_fixture_is_valid_copy_ready_contract():
     assert package['approval_required'] and not package['auto_execute']
 
 
-def test_quantity_and_budget_do_not_override_prepare_only(setup):
+def test_multi_unit_product_is_blocked_without_available_quantity_evidence(setup):
     s = setup
     s.inputs['goal']['criteria']['quantity'] = 3
     s.inputs['goal']['criteria']['max_total_eur_cents'] = 200000
-    p = create(s)
-    assert p['total_eur_cents'] == 174700  # 3 * 57900 + order shipping 1000
-    assert not p['auto_execute']
-    s.inputs['goal']['criteria']['max_total_eur_cents'] = 100
     assert s.builder.build(s.inputs['event'], s.inputs['goal'], s.inputs['evaluation'],
         s.inputs['observations'], s.inputs['runtime'], NOW) is None
 

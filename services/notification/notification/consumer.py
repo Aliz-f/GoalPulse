@@ -1,6 +1,7 @@
 """Verified-event processing using local read-only adapter seams, not HTTP DTOs."""
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal
 from time import sleep
 from typing import Callable, ContextManager, Protocol, Sequence, TypeVar
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -119,6 +120,13 @@ class NotificationConsumer:
             self.contracts.validate('goal-spec', goal)
             if (goal['goal_id'], goal['version'], goal['owner_user_id']) != (gid, version, runtime.owner_user_id):
                 raise ValueError('Goal identity or owner mismatch')
+            criteria = goal['criteria']
+            if ((goal['goal_type'] == 'product_purchase' and criteria['quantity'] != 1) or
+                    (goal['goal_type'] == 'recurring_procurement' and
+                     any(Decimal(str(item['quantity'])) != Decimal('1') for item in criteria['items']))):
+                # Frozen Observation.v1 has no available-quantity fact. Defend
+                # against old or malformed verified events that overstate stock.
+                return 'suppressed'
             if not goal['actions']['notify_user'] or not transaction.in_app_enabled(runtime.owner_user_id):
                 return 'disabled'
             required = PRODUCT_CODES if goal['goal_type'] == 'product_purchase' else PROCUREMENT_CODES

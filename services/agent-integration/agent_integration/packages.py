@@ -1,4 +1,4 @@
-"""Whitelisted prepare-only packages, using the session-approved seller grouping."""
+"""Whitelisted prepare-only packages using a service-local proposed seller grouping."""
 import copy
 import json
 from datetime import datetime

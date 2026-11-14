@@ -154,8 +154,23 @@ class RecurringProcurementEvaluator:
         add('quality', 'satisfied' if complete and all(not i['requirements'] for i in criteria['items']) else 'unknown',
             'No additional quality requirements' if all(not i['requirements'] for i in criteria['items']) else
             'Observation.v1 has no structured quality requirements evidence')
-        add('availability', combined([{'in_stock': 'satisfied', 'out_of_stock': 'unsatisfied',
-            'unknown': 'unknown'}[o['availability']] for o in observations]), 'Stock checked per selected line')
+        availability = []
+        for item, observation in zip(criteria['items'], basket):
+            if observation is None or observation['availability'] == 'unknown':
+                availability.append('unknown')
+            elif observation['availability'] == 'out_of_stock':
+                availability.append('unsatisfied')
+            elif Decimal(str(item['quantity'])) == Decimal('1'):
+                availability.append('satisfied')
+            else:
+                # Observation.v1 has only a tri-state listing flag. It does not
+                # prove that the requested kg/L/piece quantity is orderable.
+                availability.append('unknown')
+        availability_status = combined(availability)
+        add('availability', availability_status,
+            'Every requested quantity is exactly one in-stock normalized unit'
+            if availability_status == 'satisfied' else
+            'A listing is unavailable, unknown, or lacks requested-quantity stock evidence')
         add('delivery', combined([{'yes': 'satisfied', 'no': 'unsatisfied', 'unknown': 'unknown'}[o['delivery_to_fi']]
             for o in observations]) if criteria['delivery_country'] == 'FI' else 'unknown',
             'Only FI delivery is representable in v1')

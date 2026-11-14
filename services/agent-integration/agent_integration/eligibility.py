@@ -3,6 +3,7 @@ import ipaddress
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Sequence
 from urllib.parse import urlsplit
@@ -88,7 +89,7 @@ class HandoffEligibility:
     """Check immutable input identities, provenance, current state and lifetime.
 
     Caller must supply fresh authenticated reads, recheck at persistence/read
-    time, and use an approved package contract before building anything. GE
+    time, and require coordinated package-contract approval before exposure. GE
     remains the evaluator; this module cannot execute, serialize or send actions.
     """
 
@@ -155,8 +156,10 @@ class HandoffEligibility:
             return Eligibility(False, 'unsupported_destination')
         if goal['goal_type'] == 'product_purchase':
             product = goal['criteria']['product']
-            if product['condition'] != 'any' or set(product.get('required_attributes', {})) - {'brand', 'model', 'product_name'}:
+            if (goal['criteria']['quantity'] != 1 or product['condition'] != 'any' or
+                    set(product.get('required_attributes', {})) - {'brand', 'model', 'product_name'}):
                 return Eligibility(False, 'evidence_contract_gap')
-        elif any(item['requirements'] for item in goal['criteria']['items']):
+        elif (any(Decimal(str(item['quantity'])) != Decimal('1') for item in goal['criteria']['items']) or
+              any(item['requirements'] for item in goal['criteria']['items'])):
             return Eligibility(False, 'evidence_contract_gap')
         return Eligibility(True, 'preconditions_checked_only', min(deadlines))

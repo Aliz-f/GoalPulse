@@ -158,10 +158,11 @@ class PackageReader:
     def __init__(self, contract: PackageContract, store: Store, goals: Goals, clock: Callable[[], datetime]):
         self.contract, self.store, self.goals, self.clock = contract, store, goals, clock
 
-    def get(self, package_id: str, principal: Principal) -> Document:
+    def get(self, package_id: str, principal: Principal, correlation_id: str) -> Document:
         if not isinstance(principal, Principal):
             raise AuthenticationRequired()
         package_id = str(UUID(package_id))
+        correlation_id = str(UUID(correlation_id))
         with self.store.transaction() as transaction:
             package = transaction.get_owned(package_id, principal.subject)
         if package is None:
@@ -169,9 +170,7 @@ class PackageReader:
         self.contract.validate(package)
         if package['package_id'] != package_id:
             raise ValueError('Stored package identity mismatch')
-        # Correlation is generated locally; caller identity never comes from a header user ID.
-        from uuid import uuid4
-        runtime = self.goals.runtime(package['goal_id'], str(uuid4()))
+        runtime = self.goals.runtime(package['goal_id'], correlation_id)
         if not isinstance(runtime, Runtime) or runtime.goal_id != package['goal_id'] or runtime.owner_user_id != principal.subject:
             raise PackageNotFound()
         if (runtime.lifecycle != 'active' or runtime.current_version != package['goal_version'] or

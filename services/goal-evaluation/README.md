@@ -67,6 +67,9 @@ Payable cost is `quantity * unit_price + shipping + additional tax`, with
 offer-level shipping and tax applied once. Only `pcs` has a known product-unit
 conversion. Money uses Python integers; even integral floating point inputs are
 rejected. Missing charges stay unknown; checked explicit zero is valid.
+Observation.v1 has no available-quantity field, so `in_stock` satisfies
+availability only when exactly one piece is requested. Multi-unit availability
+remains unknown even when its payable total can be calculated.
 Freshness uses the original `observed_at`, including timezone offsets; future
 timestamps and stale/cached timestamps cannot verify. DE must preserve actual
 capture time. The caller must supply the latest relevant snapshots; selecting
@@ -255,6 +258,9 @@ merchant order for the requested basket. This is a local policy input, not a new
 contract field, and it never fills in missing facts. Free-text quality
 requirements remain unknown pending structured evidence (ICP-13 coordination).
 The original café goal therefore remains unknown even with synthetic prices.
+It also requests 20 L and 10 kg, while Observation.v1 has no available-quantity
+fact. Only exactly one normalized unit per selected line can satisfy availability
+under v1; larger or fractional requests remain unknown.
 
 For confirmed fixtures, each line cost is
 `ROUND_HALF_UP(Decimal(str(quantity)) * integer_unit_price)` to EUR cents. Exact

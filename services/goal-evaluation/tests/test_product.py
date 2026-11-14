@@ -183,13 +183,25 @@ def test_freshness_boundary_and_timezone(inputs):
 
 def test_quantity_and_budget_equality(inputs):
     goal, observation = inputs
-    goal['criteria']['quantity'] = 3
-    observation.update(unit_price_eur_cents=19000, shipping_eur_cents=1000, tax_eur_cents=2000)
+    observation.update(unit_price_eur_cents=57000, shipping_eur_cents=1000, tax_eur_cents=2000)
     result = evaluate(goal, [observation])
     assert result['is_opportunity_verified']
     assert '60000 EUR cents' in condition(result, 'total_within_budget')['reason']
     observation['tax_eur_cents'] = 2001
     assert evaluate(goal, [observation])['status'] == 'unsatisfied'
+
+
+def test_multi_unit_in_stock_does_not_invent_available_quantity(inputs):
+    goal, observation = inputs
+    goal['criteria']['quantity'] = 3
+    goal['criteria']['max_total_eur_cents'] = 60000
+    observation.update(unit_price_eur_cents=19000, shipping_eur_cents=1000, tax_eur_cents=2000)
+    result = evaluate(goal, [observation])
+    assert result['status'] == 'unknown'
+    assert not result['is_opportunity_verified']
+    assert condition(result, 'availability')['status'] == 'unknown'
+    assert 'no available quantity' in condition(result, 'availability')['reason']
+    assert condition(result, 'total_within_budget')['status'] == 'satisfied'
 
 
 def test_zero_charges_valid_with_checked_evidence(inputs):
@@ -300,8 +312,9 @@ def test_quantity_charge_matrix_never_fabricates_payable_total(inputs, shipping,
         assert not result['is_opportunity_verified']
     else:
         total = quantity * 19000 + shipping + tax
-        assert result['status'] == ('satisfied' if total <= 60000 else 'unsatisfied')
-        assert result['is_opportunity_verified'] == (total <= 60000)
+        expected = 'unsatisfied' if total > 60000 else 'satisfied' if quantity == 1 else 'unknown'
+        assert result['status'] == expected
+        assert result['is_opportunity_verified'] == (quantity == 1 and total <= 60000)
 
 
 def test_control_text_cannot_supply_arbitrary_attributes(inputs):

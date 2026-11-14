@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Action Package \u2014 session-approved service artifact",
+  "title": "Action Package \u2014 service-local proposal",
   "type": "object",
   "additionalProperties": false,
   "properties": {

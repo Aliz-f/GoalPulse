@@ -61,8 +61,10 @@ approval and release order before integration work begins.
 
 Existing implementation also assumes the specification's offer-level shipping
 and additional-tax semantics. D3 must confirm those normalized amounts apply to
-the requested quantity; stock count and quantity-dependent charges are not
-represented in v1. No checkout availability or reservation is asserted.
+the requested quantity. Stock count is not represented in v1, so `in_stock`
+proves availability only for a request of exactly one normalized unit. Larger or
+fractional requested quantities remain `unknown` and cannot produce a verified
+event, notification or package. No checkout availability or reservation is asserted.
 
 ## D4-GE-05 follow-up: procurement quality and normalized costs
 

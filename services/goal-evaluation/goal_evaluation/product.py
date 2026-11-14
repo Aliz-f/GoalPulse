@@ -124,9 +124,23 @@ class ProductPurchaseEvaluator:
         add('condition', 'satisfied' if product['condition'] == 'any' else 'unknown',
             'Any condition accepted' if product['condition'] == 'any' else
             'Observation.v1 has no product-condition field; new cannot be established')
-        add('availability', {'in_stock': 'satisfied', 'out_of_stock': 'unsatisfied',
-                            'unknown': 'unknown'}[observation['availability']],
-            'Observed availability: ' + observation['availability'] + '; quantity stock count is not represented in v1')
+        availability = observation['availability']
+        if availability == 'out_of_stock':
+            availability_status = 'unsatisfied'
+            availability_reason = 'Observed availability: out_of_stock'
+        elif availability == 'unknown':
+            availability_status = 'unknown'
+            availability_reason = 'Observed availability is unknown'
+        elif criteria['quantity'] == 1:
+            availability_status = 'satisfied'
+            availability_reason = 'One requested piece is reported in stock'
+        else:
+            availability_status = 'unknown'
+            availability_reason = (
+                'Observation.v1 reports in_stock but has no available quantity; '
+                f'{criteria["quantity"]} requested pieces cannot be established'
+            )
+        add('availability', availability_status, availability_reason)
         delivery = observation['delivery_to_fi']
         add('delivery', {'yes': 'satisfied', 'no': 'unsatisfied', 'unknown': 'unknown'}[delivery]
             if criteria['delivery_country'] == 'FI' else 'unknown',

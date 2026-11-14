@@ -1,4 +1,4 @@
-"""Synthetic handoff-precondition tests; no approved package is generated."""
+"""Synthetic handoff-precondition tests; no public package interface is approved."""
 import copy
 import json
 import sys
@@ -148,6 +148,7 @@ def test_basket_expiry_uses_oldest_capture_without_serializing_a_package(inputs)
     goal = load('goal-spec.procurement.json')
     for item in goal['criteria']['items']:
         item['requirements'] = []
+        item['quantity'] = 1
     first = inputs['observations'][0]
     second = dict(first, observation_id=str(uuid4()), source_id=str(uuid4()), observed_at='2026-11-14T09:00:00Z')
     ids = [first['observation_id'], second['observation_id']]

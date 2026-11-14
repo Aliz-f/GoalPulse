@@ -23,6 +23,9 @@ owner/lifecycle/version changes during
 processing; time is read after that potentially slow request. The recipient is
 always taken from GM, not event/client input. GE remains authoritative for domain
 evaluation; Notification independently checks the downstream safety gates.
+Because Observation.v1 has no available-quantity fact, product or procurement
+requests for anything other than exactly one normalized unit are suppressed even
+if an older or malformed evaluation claims they are verified.
 
 Within one owned-DB transaction, processing stores the inbox claim, an unread
 notification and an in-app delivery row in state `available`. Available means

@@ -158,6 +158,13 @@ def test_incomplete_or_stale_evidence_suppressed(setup, field, value):
     assert not s.store.notifications
 
 
+def test_multi_unit_product_is_suppressed_without_available_quantity_evidence(setup):
+    s = setup
+    s.goal['criteria']['quantity'] = 2
+    assert s.consumer.handle(s.event) == 'suppressed'
+    assert not s.store.notifications
+
+
 def test_unverified_evidence_suppressed(setup):
     s = setup
     s.observation['evidence']['reliability'] = 'unverified'
@@ -358,6 +365,7 @@ def test_procurement_verified_basket_creates_one_note_with_all_citations(setup):
     goal = load('goal-spec.procurement.json')
     for item in goal['criteria']['items']:
         item['requirements'] = []
+        item['quantity'] = 1
     milk = dict(s.observation, product_name='Lactose-free milk', selling_unit='L', unit_price_eur_cents=115)
     coffee = dict(s.observation, observation_id=str(uuid4()), source_id=str(uuid4()),
                   source_url='https://other.example.com/coffee', product_name='Coffee beans',

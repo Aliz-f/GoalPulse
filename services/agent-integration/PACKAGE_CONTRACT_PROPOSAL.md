@@ -1,11 +1,10 @@
-# Action Package contract — session-approved implementation basis
+# Action Package contract — service-local proposal pending coordinated approval
 
-Status: the user explicitly confirmed this contract approved on 2026-11-14 and
-requested implementation of AI-02/03. The grouped seller_orders contract below
-is implemented in the service-local schema and package/read adapters. This
-records the session instruction, not a fabricated D1/D2/D3 signoff or PR number.
-Developer 1 still owns publishing the coordinated shared contract/ADR and Gateway
-wiring. No frozen v1 interface or shared approval ledger is modified here.
+Status: the grouped `seller_orders` shape is implemented only as a service-local
+proposal and persistence artifact. ICP-02, the shared schema, public route and
+Gateway response remain unapproved. Developer 1 owns a coordinated contract/ADR
+release with D2/D3/D4 review. No frozen v1 interface or approval ledger is
+modified here, and no `/v1/action-packages/{package_id}` handler is supplied.
 
 Implementation policy: no automatic successor/refresh for an identical offer.
 Duplicate evaluation or goal/version/offer returns no second package, including
@@ -14,13 +13,13 @@ GET never creates or renews a package.
 
 ## Shared-release handoff to Developer 1
 
-Publish the session-approved package shape and selected conservative dedup rule
+Review and, if accepted, publish the proposed package shape and selected conservative dedup rule
 in the coordinated D1/D2/D3/D4 contract release, with its ADR and review record.
 The public Gateway draft still needs alignment with grouped seller_orders.
 
 ### Existing authoritative artifacts
 
-- The session-approved schema is bundled under this service; its shared contracts/
+- The proposed schema is bundled under this service; its shared contracts/
   publication remains D1-owned.
 - Frozen GoalSpec.v1, Observation.v1, GoalEvaluation.v1, domain-event.v1 and event
   routing remain unchanged.
@@ -38,7 +37,7 @@ additional-tax semantics must also match D3 normalization. Repeated captures of
 one offer can have different evidence expiry times, so fingerprint deduplication
 needs an explicit refresh/expiry rule.
 
-### Session-approved schema/API shape
+### Proposed schema/API shape
 
 Add a **new** `contracts/schemas/action-package.v1.schema.json` only through the
 approved coordinated contract PR. Do not edit existing v1 artifacts. Required top-level fields:
@@ -64,7 +63,7 @@ is the sum of line totals, additional line taxes and merchant shipping once per
 order. Conflicting/unknown merchant charges block package construction. D3 must
 confirm normalization and quantity-dependent charges before live use.
 
-Synthetic product example of the approved shape (values are fixtures):
+Synthetic product example of the proposed shape (values are fixtures):
 
 ```json
 {
@@ -132,17 +131,16 @@ private DB reads. Public/internal endpoints remain separately gated by ICP-01/02
 
 ### Rollout and acceptance
 
-1. Record the session-approved shape/dedup policy in the coordinated shared release.
+1. Review and record the shape/dedup policy in a coordinated shared release.
 2. Record accepted ADR, schema, examples and producer/consumer contract tests.
-3. Add approved serializer and owned-DB immutable persistence/inbox/dedup migration.
+3. Approve the serializer and owned-DB immutable persistence/inbox/dedup migration.
 4. Test duplicate events, multi-seller totals, missing/new-condition/quality
    evidence, stale/paused/old versions, expiry and owner-only retrieval with mocks.
 5. Coordinate authenticated reads and deployment with D1; run PostgreSQL/broker
    and Gateway tests before enabling export. No unsolicited external callback or
    checkout/payment/credential capability is part of this rollout.
 
-Session approval: user confirmation, 2026-11-14. Approver identities, shared ADR
-and approval PR were not provided. Service schema:
+No ICP-02 approval, shared ADR or approval PR is recorded. Service-local schema:
 `schemas/action-package.v1.schema.json`. Shared contract publication and Gateway
-alignment remain a D1 handoff. The design rationale above is retained, with its conservative dedup alternative
-selected for implementation.
+alignment remain a D1 handoff. The design rationale above is retained, with its
+conservative dedup alternative proposed for review.

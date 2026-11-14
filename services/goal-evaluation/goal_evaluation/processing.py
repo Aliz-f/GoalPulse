@@ -151,7 +151,7 @@ class EvidenceProcessor:
         if any(not isinstance(s, Subscription) for s in subscriptions):
             raise ValueError('Invalid subscription adapter result')
         triggered = None
-        cache: dict[str, Document] = {}
+        cache: dict[str, Document | None] = {}
         for subscription in sorted(set(subscriptions)):
             runtime = self._runtime(subscription, correlation)
             if not runtime.permits(subscription):
@@ -176,8 +176,6 @@ class EvidenceProcessor:
             for linked_source in sorted(set(sources)):
                 if linked_source not in cache:
                     rows = self._bounded(self._read(lambda: self.evidence.latest_for_source(linked_source, correlation)))
-                    if not rows:
-                        raise ValueError('Linked source returned no evidence')
                     seen: dict[str, Document] = {}
                     for row in rows:
                         self.contracts.validate('observation', row)
@@ -190,11 +188,12 @@ class EvidenceProcessor:
                         if oid in seen and seen[oid] != triggered:
                             raise ValueError('Trigger snapshot differs from immutable observation')
                         seen[oid] = triggered
-                    cache[linked_source] = max(seen.values(), key=lambda row: (
+                    cache[linked_source] = (max(seen.values(), key=lambda row: (
                         datetime.fromisoformat(row['observed_at'].replace('Z', '+00:00')),
                         row['observation_id'],
-                    ))
-                observations.append(cache[linked_source])
+                    )) if seen else None)
+                if cache[linked_source] is not None:
+                    observations.append(cache[linked_source])
             result = self.dispatcher.evaluate(goal, observations, self.clock())
             # Final authoritative check also catches pause/version changes during evaluation.
             final = self._runtime(subscription, correlation)

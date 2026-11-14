@@ -17,6 +17,7 @@ sys.path.insert(0, str(SERVICE))
 from goal_evaluation.consumer import EvidenceConsumer
 from goal_evaluation.domain import Contracts, Dispatcher
 from goal_evaluation.product import ProductPurchaseEvaluator
+from goal_evaluation.procurement import RecurringProcurementEvaluator
 from goal_evaluation.processing import EvidenceProcessor, ReadRetry, RetryableUpstreamError, Runtime, Subscription
 
 NOW = datetime(2026, 11, 14, 10, tzinfo=timezone.utc)
@@ -275,11 +276,50 @@ def test_all_linked_sources_supply_alternative_offers(rig):
     assert rig.evidence.latest_for_source.call_count == 2
 
 
-def test_missing_linked_source_evidence_fails_closed(rig):
+def test_trigger_observation_is_used_when_latest_list_is_temporarily_empty(rig):
     rig.evidence.latest_for_source.return_value = []
-    with pytest.raises(ValueError, match='no evidence'):
-        rig.consumer.handle(rig.event)
-    assert not rig.store.inbox and not rig.store.results
+    assert rig.consumer.handle(rig.event)
+    assert len(rig.store.results) == 1
+    assert rig.store.results[0][0]['candidate_observation_ids'] == [rig.observation['observation_id']]
+
+
+def test_empty_nontrigger_source_is_missing_input_not_processing_failure(rig):
+    empty_source = 'ae000000-0000-4000-8000-000000000097'
+    rig.subscriptions.sources_for_goal.return_value = [rig.observation['source_id'], empty_source]
+    rig.evidence.latest_for_source.side_effect = (
+        lambda source, correlation: [rig.observation] if source == rig.observation['source_id'] else []
+    )
+    assert rig.consumer.handle(rig.event)
+    assert len(rig.store.results) == 1
+    assert rig.store.results[0][0]['candidate_observation_ids'] == [rig.observation['observation_id']]
+
+
+def test_empty_procurement_source_persists_partial_unknown_evaluation(rig):
+    goal = load('goal-spec.procurement.json')
+    for item in goal['criteria']['items']:
+        item['requirements'] = []
+        item['quantity'] = 1
+    trigger = copy.deepcopy(rig.observation)
+    trigger.update(product_name=goal['criteria']['items'][0]['name'], selling_unit='L')
+    subscription = Subscription(goal['goal_id'], goal['version'])
+    runtime = Runtime(goal['goal_id'], goal['owner_user_id'], 1, 'active')
+    empty_source = 'ae000000-0000-4000-8000-000000000097'
+    rig.subscriptions.for_source.return_value = [subscription]
+    rig.subscriptions.sources_for_goal.return_value = [trigger['source_id'], empty_source]
+    rig.goals.runtime.return_value = runtime
+    rig.goals.version.return_value = goal
+    rig.evidence.observation.return_value = trigger
+    rig.evidence.latest_for_source.side_effect = (
+        lambda source, correlation: [trigger] if source == trigger['source_id'] else []
+    )
+    procurement = RecurringProcurementEvaluator(rig.contracts, normalized_cost_policy_confirmed=True)
+    rig.processor.dispatcher = Dispatcher(rig.contracts, {'recurring_procurement': procurement})
+
+    assert rig.consumer.handle(rig.event)
+    result = rig.store.results[0][0]
+    assert result['status'] == 'unknown'
+    assert not result['is_opportunity_verified']
+    assert next(c for c in result['conditions'] if c['code'] == 'full_basket_coverage')['status'] == 'unknown'
 
 
 def test_trigger_snapshot_conflict_fails_closed(rig):
