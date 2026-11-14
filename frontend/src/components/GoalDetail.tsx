@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 
 import { Icon, Notice } from "@/components/Icons";
 import { DraftSummary } from "@/components/DraftSummary";
+import { EvaluationPanel } from "@/components/EvaluationPanel";
 import { LifecycleBadge, OpportunityStatus } from "@/components/GoalStatus";
 import { getApi } from "@/lib/api";
 import { adviceFor } from "@/lib/api/errors";
@@ -138,6 +139,8 @@ export function GoalDetail() {
               : "Marking as done stops monitoring. It doesn't buy anything."}
           </p>
         )}
+
+        <EvaluationPanel spec={spec} />
       </section>
 
       <DraftSummary summary={summarizeCandidate(spec as unknown as Record<string, unknown>)} badge={`Version ${spec.version}`} />

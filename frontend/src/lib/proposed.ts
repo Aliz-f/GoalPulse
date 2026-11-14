@@ -1,23 +1,8 @@
-// ICP-02 — PROPOSED, NOT APPROVED. Types mirror
-// contracts/openapi/gateway.extensions.proposed.v1.yaml. Until the team approves
-// ICP-02 these are served ONLY by the mock API; there is deliberately no gateway
-// implementation, so no unapproved route can ship (D2-FE-04 acceptance).
-
-export interface Notification {
-  notification_id: string;
-  goal_id: string;
-  goal_version: number;
-  title: string;
-  summary: string;
-  created_at: string;
-  is_read: boolean;
-  /**
-   * NOT in the ICP-02 proposal. Notification's own DB has `action_package_id nullable`
-   * (docs/implementation/06-notification.md), but the public schema omits it, so the
-   * feed can't link to its package. Requested as an ICP-02 amendment; mock-only until then.
-   */
-  action_package_id?: string | null;
-}
+// Prepared purchase (action package) — MOCK ONLY. This is the older ICP-02 proposal
+// shape (`seller_offers`). The accepted Phase 2 contract groups items by seller
+// (`seller_orders`, P1, R2-D4-03), and the public Notification has no link to a package,
+// so gateway mode never shows a package. Notifications themselves moved to the
+// accepted contract in extension.ts (R2-D2-04).
 
 export interface SellerOffer {
   seller_domain: string;
@@ -49,8 +34,6 @@ export interface ActionPackage {
 }
 
 export interface ProposedApi {
-  listNotifications(limit?: number): Promise<Notification[]>;
-  markNotificationRead(notificationId: string): Promise<void>;
   /** 404 = absent or not yours; 410 = expired. */
   getActionPackage(packageId: string): Promise<ActionPackage>;
 }

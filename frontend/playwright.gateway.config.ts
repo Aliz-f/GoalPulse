@@ -17,6 +17,8 @@ const GATEWAY = realGateway ?? `http://127.0.0.1:${STUB_PORT}`;
 export default defineConfig({
   testDir: "./e2e/gateway",
   fullyParallel: false,
+  // One worker: the stub keeps shared in-memory state (read flags) across spec files.
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "list" : [["list"], ["html", { open: "never", outputFolder: "playwright-report-gateway" }]],

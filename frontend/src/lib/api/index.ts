@@ -28,7 +28,11 @@ export function getApi(): GoalPulseApi {
     api =
       RUNTIME.gatewayUrl === null
         ? createMockApi()
-        : createGatewayApi({ baseUrl: RUNTIME.gatewayUrl, onUnauthorized: () => sessionStore?.expire() });
+        : createGatewayApi({
+            baseUrl: RUNTIME.gatewayUrl,
+            onUnauthorized: () => sessionStore?.expire(),
+            canSend: () => sessionStore?.get().status === "signed_in",
+          });
   }
   return api;
 }

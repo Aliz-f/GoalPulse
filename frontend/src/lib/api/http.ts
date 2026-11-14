@@ -11,6 +11,12 @@ export interface HttpOptions {
   newCorrelationId?: () => string;
   /** Called on any 401, so the app can show sign-in. Not used by the sign-in calls themselves. */
   onUnauthorized?: () => void;
+  /**
+   * When given and false, the request is refused locally as "not signed in" and never
+   * leaves the browser. Pages render (hidden) before the session is known; this keeps
+   * them from calling the gateway until someone is signed in.
+   */
+  canSend?: () => boolean;
 }
 
 export interface Http {
@@ -33,6 +39,7 @@ export function createHttp(opts: HttpOptions): Http {
 
   return {
     async send(method, path, body) {
+      if (opts.canSend && !opts.canSend()) throw new ApiError(401, "not_signed_in", "not signed in");
       const headers: Record<string, string> = {
         Accept: "application/json",
         "X-Correlation-ID": correlationId(),

@@ -133,6 +133,24 @@ describe("gateway client (frozen public contract)", () => {
     assert.equal(expired, 1);
   });
 
+  it("sends nothing while signed out, and doesn't treat that as an expired session", async () => {
+    const calls: Call[] = [];
+    let expired = 0;
+    let signedIn = false;
+    const api = createGatewayApi({
+      baseUrl: "http://gw",
+      fetchImpl: fakeFetch(200, [], calls),
+      onUnauthorized: () => expired++,
+      canSend: () => signedIn,
+    });
+    await assert.rejects(api.listGoals(), (e: ApiError) => e.kind === "not_signed_in");
+    assert.equal(calls.length, 0);
+    assert.equal(expired, 0);
+    signedIn = true;
+    assert.deepEqual(await api.listGoals(), []);
+    assert.equal(calls.length, 1);
+  });
+
   it("maps the ICP-01 {code, message} error body, non-JSON success and network failures", async () => {
     const api = createGatewayApi({
       baseUrl: "http://gw",

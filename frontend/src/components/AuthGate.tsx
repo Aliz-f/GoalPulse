@@ -1,7 +1,7 @@
 "use client";
 
 import { LogIn } from "lucide-react";
-import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { Icon, Notice } from "@/components/Icons";
 import { sessionStore } from "@/lib/api";
@@ -20,9 +20,14 @@ export function useSession(): SessionState {
 }
 
 /**
- * Gateway mode: pages render only for a signed-in user, and are remounted when the
+ * Gateway mode: pages are shown only to a signed-in user, and are remounted when the
  * account changes so nothing loaded for one user is shown to the next. Mock mode has
  * no accounts and passes straight through.
+ *
+ * The pages are always rendered (hidden until sign-in) so the server can prerender
+ * every route segment, as Next 16's instant-navigation validation requires. Hidden
+ * pages load no data: the API client refuses to send anything until the session is
+ * confirmed (canSend in src/lib/api/http.ts).
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   return sessionStore ? <GatewayGate store={sessionStore}>{children}</GatewayGate> : <>{children}</>;
@@ -35,21 +40,28 @@ function GatewayGate({ store, children }: { store: SessionStore; children: React
     if (store.get().status === "checking") void store.refresh();
   }, [store]);
 
-  if (state.status === "signed_in") return <Fragment key={state.user.user_id}>{children}</Fragment>;
+  const signedIn = state.status === "signed_in";
 
   return (
-    <main className="page page-narrow">
-      {state.status === "checking" && <p className="hint">Checking your sign-in…</p>}
-      {state.status === "unavailable" && (
-        <Notice tone="error">
-          {state.message}{" "}
-          <button type="button" className="link-button" onClick={() => void store.refresh()}>
-            Try again
-          </button>
-        </Notice>
+    <>
+      {!signedIn && (
+        <main className="page page-narrow">
+          {state.status === "checking" && <p className="hint">Checking your sign-in…</p>}
+          {state.status === "unavailable" && (
+            <Notice tone="error">
+              {state.message}{" "}
+              <button type="button" className="link-button" onClick={() => void store.refresh()}>
+                Try again
+              </button>
+            </Notice>
+          )}
+          {state.status === "signed_out" && <SignInForm store={store} expired={state.expired} />}
+        </main>
       )}
-      {state.status === "signed_out" && <SignInForm store={store} expired={state.expired} />}
-    </main>
+      <div key={signedIn ? state.user.user_id : "signed-out"} hidden={!signedIn}>
+        {children}
+      </div>
+    </>
   );
 }
 

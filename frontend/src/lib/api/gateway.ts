@@ -1,13 +1,18 @@
 import type { ConfirmRequest, GoalDraft, GoalSpec, GoalSummary } from "../contracts.ts";
 import { createHttp, readJson, type HttpOptions } from "./http.ts";
+import type { GoalEvaluation, Notification } from "../extension.ts";
 import type { GoalPulseApi } from "./types.ts";
 
 export { normalizeBaseUrl } from "../runtime.ts";
 
 export type GatewayOptions = HttpOptions;
 
+/** The contract allows limit 1..100. */
+const clamp = (n: number) => Math.max(1, Math.min(100, Math.trunc(n) || 20));
+
 /**
- * Client for the frozen public gateway contract (contracts/openapi/gateway.v1.yaml).
+ * Client for the frozen public gateway contract (contracts/openapi/gateway.v1.yaml) and the
+ * owner-scoped evaluation/notification reads of gateway.phase2.extension.v1.yaml.
  * Authenticated by the gateway's HttpOnly demo session cookie (see http.ts).
  */
 export function createGatewayApi(opts: GatewayOptions): GoalPulseApi {
@@ -33,6 +38,12 @@ export function createGatewayApi(opts: GatewayOptions): GoalPulseApi {
     getGoal: (goalId) => json<GoalSpec>("GET", goal(goalId)),
     updateLifecycle: async (goalId, action) => {
       await http.send("PATCH", `${goal(goalId)}/lifecycle`, { action });
+    },
+    listEvaluations: (goalId, limit = 20) =>
+      json<GoalEvaluation[]>("GET", `${goal(goalId)}/evaluations?limit=${clamp(limit)}`),
+    listNotifications: (limit = 20) => json<Notification[]>("GET", `/v1/notifications?limit=${clamp(limit)}`),
+    markNotificationRead: async (notificationId) => {
+      await http.send("PATCH", `/v1/notifications/${encodeURIComponent(notificationId)}/read`);
     },
   };
 }

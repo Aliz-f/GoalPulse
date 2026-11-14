@@ -552,3 +552,59 @@ button.danger {
   width: 100%;
   margin-bottom: 0.9rem;
 }
+
+/* evaluation results (R2-D2-04) */
+.evaluation {
+  margin-top: 1.25rem;
+}
+
+.evaluation h2 {
+  margin-top: 0;
+  font-size: 1.15rem;
+}
+
+.evaluation h3 {
+  font-size: 1rem;
+  margin: 1rem 0 0.5rem;
+}
+
+.conditions,
+.history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.condition {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.condition-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.condition-badge-satisfied {
+  border-color: var(--info-border);
+}
+
+.condition-badge-unsatisfied {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--text);
+}
+
+.condition-badge-unknown {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--text);
+}
+
+.history li {
+  padding: 0.25rem 0;
+}

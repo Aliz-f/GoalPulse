@@ -1,7 +1,7 @@
 // Only approved public gateway routes may appear in frontend source:
 //   contracts/openapi/gateway.v1.yaml                   /v1/goal-sessions*, /v1/goals*
-//   contracts/openapi/gateway.phase2.extension.v1.yaml  demo sign-in (R2-D2-02)
-// The Phase 2 evaluation/notification routes arrive with R2-D2-04.
+//   contracts/openapi/gateway.phase2.extension.v1.yaml  demo sign-in (R2-D2-02),
+//     evaluations and notifications (R2-D2-04). Action packages (P1) are not called.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -10,6 +10,7 @@ import { describe, it } from "node:test";
 const SRC = new URL("../src/", import.meta.url).pathname;
 const FROZEN_PREFIXES = ["/v1/goal-sessions", "/v1/goals"];
 const DEMO_AUTH = ["/v2/demo/sessions", "/v2/demo/session", "/v2/demo/sessions/logout"];
+const EXTENSION_PREFIXES = ["/v1/notifications"];
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -29,8 +30,12 @@ describe("gateway routes used by the frontend", () => {
       const text = readFileSync(file, "utf8");
       for (const match of text.matchAll(/["'`](\/(?:v1|v2|internal)\/[^"'`$?]*)/g)) {
         const path = match[1];
-        const frozen = FROZEN_PREFIXES.some((prefix) => path.startsWith(prefix)) && !path.includes("/evaluations");
-        assert.ok(frozen || DEMO_AUTH.includes(path), `${file} references unapproved route ${path}`);
+        const approved =
+          FROZEN_PREFIXES.some((prefix) => path.startsWith(prefix)) ||
+          EXTENSION_PREFIXES.some((prefix) => path.startsWith(prefix)) ||
+          DEMO_AUTH.includes(path);
+        assert.ok(approved, `${file} references unapproved route ${path}`);
+        assert.doesNotMatch(path, /action-packages/, `${file} calls the P1 package route`);
       }
       assert.doesNotMatch(text, /\/internal\/v1\//, `${file} references an internal route`);
     }

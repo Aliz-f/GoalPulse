@@ -24,13 +24,10 @@ export function AppHeader() {
           <Icon icon={Target} />
           My goals
         </Link>
-        {/* Notifications use the Phase 2 extension API; wired in gateway mode by R2-D2-04. */}
-        {API_MODE === "mock" && (
-          <Link href="/notifications" className="with-icon">
-            <Icon icon={Bell} />
-            Notifications
-          </Link>
-        )}
+        <Link href="/notifications" className="with-icon">
+          <Icon icon={Bell} />
+          Notifications
+        </Link>
       </nav>
       {API_MODE === "mock" ? (
         <span className="badge badge-mock" title="Responses are recorded from the Goal Intelligence service; your text is not interpreted.">
