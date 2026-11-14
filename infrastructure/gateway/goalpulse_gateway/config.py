@@ -74,6 +74,11 @@ class GatewaySettings:
     service_jwt_audience: str
     goal_intelligence_url: str
     goal_management_url: str
+    discovery_monitoring_url: str
+    data_evidence_url: str
+    goal_evaluation_url: str
+    notification_url: str
+    agent_integration_url: str
     demo_session_secret: str | None = None
     demo_session_ttl_seconds: int = 1800
     demo_users: tuple[DemoUser, ...] = ()
@@ -103,6 +108,11 @@ class GatewaySettings:
             service_jwt_audience=_required(env, "SERVICE_JWT_AUDIENCE"),
             goal_intelligence_url=_url(env, "GOAL_INTELLIGENCE_URL"),
             goal_management_url=_url(env, "GOAL_MANAGEMENT_URL"),
+            discovery_monitoring_url=_url(env, "DISCOVERY_MONITORING_URL"),
+            data_evidence_url=_url(env, "DATA_EVIDENCE_URL"),
+            goal_evaluation_url=_url(env, "GOAL_EVALUATION_URL"),
+            notification_url=_url(env, "NOTIFICATION_URL"),
+            agent_integration_url=_url(env, "AGENT_INTEGRATION_URL"),
         )
         if profile != "demo":
             return cls(**common)

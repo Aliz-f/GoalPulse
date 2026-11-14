@@ -187,7 +187,29 @@ class EvidenceProcessor:
                     if linked_source == source:
                         if oid in seen and seen[oid] != triggered:
                             raise ValueError('Trigger snapshot differs from immutable observation')
-                        seen[oid] = triggered
+                        # A nonempty DE latest read is canonical. An older
+                        # citation must not mask a current downgrade/changed
+                        # snapshot because its UUID happens to sort later.
+                        if not seen:
+                            seen[oid] = triggered
+                        else:
+                            newest = max(seen.values(), key=lambda row: (
+                                datetime.fromisoformat(row['observed_at'].replace('Z', '+00:00')),
+                                row['observation_id']))
+                            triggered_at = datetime.fromisoformat(
+                                triggered['observed_at'].replace('Z', '+00:00'))
+                            newest_at = datetime.fromisoformat(
+                                newest['observed_at'].replace('Z', '+00:00'))
+                            if (triggered_at > newest_at or
+                                    (triggered_at == newest_at
+                                     and triggered['evidence']['reliability'] == 'checked'
+                                     and newest['evidence']['reliability'] == 'unverified')):
+                                # The exact trigger was committed before its event.
+                                # A latest read that still exposes an older capture,
+                                # or the unverified predecessor of a same-time checked
+                                # capture, is transiently incomplete. Do not consume
+                                # the event into an unknown evaluation.
+                                raise RetryableUpstreamError('canonical_evidence_not_current')
                     cache[linked_source] = (max(seen.values(), key=lambda row: (
                         datetime.fromisoformat(row['observed_at'].replace('Z', '+00:00')),
                         row['observation_id'],

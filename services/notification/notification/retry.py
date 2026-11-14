@@ -96,10 +96,10 @@ class RetryCoordinator:
             state = 'dead_letter' if lease.attempts >= self.max_attempts else 'retry'
             reason = 'read_or_storage_failed'
         else:
-            if outcome not in {'created', 'duplicate', 'deduplicated', 'suppressed', 'disabled'}:
+            if outcome not in {'created', 'duplicate', 'deduplicated', 'suppressed', 'disabled', 'rate_limited'}:
                 state, reason = 'dead_letter', 'invalid_consumer_outcome'
             else:
-                state = 'suppressed' if outcome in {'suppressed', 'disabled'} else 'succeeded'
+                state = 'suppressed' if outcome in {'suppressed', 'disabled', 'rate_limited'} else 'succeeded'
                 reason = None
         finished = self._now()
         delay = min(2**min(lease.attempts - 1, 9), 300) if state == 'retry' else 0

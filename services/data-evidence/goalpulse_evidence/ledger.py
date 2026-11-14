@@ -1,8 +1,8 @@
 """Validate already-normalized observations and persist their publication intent.
 
 This is a private storage boundary for D3-DE-01, not ExtractionSubmission or an
-HTTP endpoint. Currency/unit normalization and reliability corroboration belong
-to the future approved ingestion/normalizer task. Nothing here upgrades trust.
+HTTP endpoint. Reliability promotion belongs exclusively to the internal checker;
+this ingestion boundary cannot accept a checked assertion.
 """
 
 from __future__ import annotations
@@ -148,6 +148,7 @@ class AttemptConflict(ValueError):
 
 
 class Transaction(Protocol):
+    def lock_source(self, source_id: str) -> None: ...
     def add_attempt(self, attempt: Attempt) -> tuple[str, bool]: ...
     def add_observation(self, observation: dict, attempt_id: str,
                         fingerprint: str, created_at: datetime) -> tuple[str, bool]: ...
@@ -191,6 +192,8 @@ class EvidenceLedger:
             return "MISSING_UNIT_PRICE"
         if not self.observation_validator.is_valid(observation):
             return "INVALID_OBSERVATION"
+        if observation["evidence"]["reliability"] == "checked":
+            return "CALLER_CHECKED"
         # JSON Schema considers 10.0 an integer; money must never use binary floats.
         for name in ("unit_price_eur_cents", "shipping_eur_cents", "tax_eur_cents"):
             if observation[name] is not None and type(observation[name]) is not int:
@@ -246,6 +249,7 @@ class EvidenceLedger:
         attempt = Attempt(str(attempt_id or uuid4()), capture, attempt_fingerprint,
                           "rejected" if reason else "accepted", reason, now)
         with self.repository.transaction() as tx:
+            tx.lock_source(str(capture.source_id))
             attempt_id, new_attempt = tx.add_attempt(attempt)
             if reason:
                 return Stored(False, attempt_id, duplicate=not new_attempt, reason=reason)

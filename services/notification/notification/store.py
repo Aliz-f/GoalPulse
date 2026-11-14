@@ -1,7 +1,7 @@
 """Inject a DB-API factory scoped to Notification's owned PostgreSQL DB only."""
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 from typing import Callable
 from .contracts import Document
 from .fingerprint import canonical
@@ -21,6 +21,10 @@ class PostgresStore:
             if connection.autocommit:
                 raise ValueError('Notification processing requires autocommit disabled')
             with connection.cursor() as cursor:
+                # The rate-cap query after acquiring the goal lock must see a
+                # competing creator's newly committed row. A repeatable-read
+                # snapshot taken by the earlier inbox insert would be unsafe.
+                cursor.execute('SET TRANSACTION ISOLATION LEVEL READ COMMITTED')
                 yield PostgresTransaction(cursor)
             connection.commit()
         except BaseException:
@@ -66,6 +70,24 @@ class PostgresTransaction:
         self.cursor.execute('INSERT INTO deliveries (notification_id,channel,state,attempts) '
                             "VALUES (%s,'in_app','available',0)", (n['notification_id'],))
         return True
+
+    def lock_goal_notifications(self, user_id: str, goal_id: str) -> None:
+        # Transaction-scoped advisory lock also works before the first row
+        # exists. Hash collisions can only over-serialize unrelated goals.
+        self.cursor.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',
+                            (f'notification:{UUID(user_id)}:{UUID(goal_id)}',))
+
+    def notification_exists(self, user_id: str, goal_id: str, version: int, fingerprint: str) -> bool:
+        self.cursor.execute('SELECT 1 FROM notifications WHERE user_id=%s AND goal_id=%s '
+                            "AND goal_version=%s AND offer_fingerprint=%s AND channel='in_app'",
+                            (user_id, goal_id, version, fingerprint))
+        return self.cursor.fetchone() is not None
+
+    def last_notification_at(self, user_id: str, goal_id: str) -> datetime | None:
+        self.cursor.execute('SELECT created_at FROM notifications WHERE user_id=%s AND goal_id=%s '
+                            "AND channel='in_app' ORDER BY created_at DESC LIMIT 1", (user_id, goal_id))
+        row = self.cursor.fetchone()
+        return aware_utc(row[0]) if row is not None else None
 
     def list_notifications(self, user_id: str, limit: int, before: Cursor | None) -> list[OwnedNotification]:
         if type(limit) is not int or not 1 <= limit <= 101:

@@ -175,7 +175,9 @@ def test_non_fi_unknown(inputs):
 
 def test_freshness_boundary_and_timezone(inputs):
     goal, observation = inputs
-    observation['observed_at'] = '2026-11-14T11:00:00+02:00'
+    # Phase 2 product evidence has a 30-minute upper bound, even if the
+    # approved goal permits older evidence. Preserve the exact-boundary check.
+    observation['observed_at'] = '2026-11-14T11:30:00+02:00'
     assert evaluate(goal, [observation])['is_opportunity_verified']
     result = evaluate(goal, [observation], NOW + timedelta(microseconds=1))
     assert condition(result, 'freshness')['status'] == 'unknown'

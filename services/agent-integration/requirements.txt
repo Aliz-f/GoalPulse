@@ -1,2 +1,7 @@
-# Approved repository stack; no broker/DB/HTTP framework is selected by this task.
+# Existing approved repository runtime stack; no automatic installation.
 jsonschema>=4.21,<5
+fastapi>=0.115,<1
+pydantic>=2.0,<3
+psycopg[binary]>=3.2,<4
+pika>=1.3,<2
+uvicorn>=0.30,<1

@@ -148,7 +148,10 @@ class HandoffEligibility:
                 o['evidence']['reliability'] != 'checked' or not safe_source(o['source_url'])):
                 return Eligibility(False, 'incomplete_or_unsafe_evidence')
             observed = datetime.fromisoformat(o['observed_at'].replace('Z', '+00:00'))
-            deadline = observed + timedelta(minutes=goal['monitoring']['max_evidence_age_minutes'])
+            age_limit = goal['monitoring']['max_evidence_age_minutes']
+            if goal['goal_type'] == 'product_purchase':
+                age_limit = min(age_limit, 30)
+            deadline = observed + timedelta(minutes=age_limit)
             if observed > now_utc or deadline <= now_utc:
                 return Eligibility(False, 'expired_or_future_evidence')
             deadlines.append(deadline)

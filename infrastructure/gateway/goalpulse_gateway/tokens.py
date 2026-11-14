@@ -61,3 +61,9 @@ class DownstreamTokenIssuer:
 
     def for_goal_management(self, owner: uuid.UUID) -> str:
         return self._mint(self._gateway, owner, "user")
+
+    def for_owner_service(self, owner: uuid.UUID, scope: str) -> str:
+        """Bind a Gateway-derived owner to one least-privilege D4 operation."""
+        if not scope or any(character.isspace() for character in scope):
+            raise ValueError("an exact downstream operation scope is required")
+        return self._mint(self._service, owner, "service", scope)

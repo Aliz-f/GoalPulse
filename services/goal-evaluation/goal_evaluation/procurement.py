@@ -21,8 +21,8 @@ CODES = ('full_basket_coverage', 'units_compatible', 'quality', 'availability',
 def line_cost(quantity: object, price: int) -> int:
     """Round each normalized-quantity line once, to cents, with ROUND_HALF_UP."""
     number = Decimal(str(quantity))
-    if not number.is_finite() or number <= 0:
-        raise ValueError('Quantity must be finite and positive')
+    if not number.is_finite() or number <= 0 or type(price) is not int or price < 0:
+        raise ValueError('Quantity must be finite/positive and price nonnegative integer cents')
     with localcontext() as context:
         context.prec = max(28, len(number.as_tuple().digits) + abs(number.as_tuple().exponent) +
                            len(str(price)) + 4)
@@ -49,7 +49,7 @@ class RecurringProcurementEvaluator:
     Defaults never assert that the absent D3 dependency has been delivered.
     """
 
-    version = 'procurement-v1.1'
+    version = 'procurement-v1.2-phase2'
 
     def __init__(self, contracts: Contracts, *, normalized_cost_policy_confirmed: bool = False,
                  max_combinations: int = 10000, max_items: int = 20, max_observations: int = 200):
@@ -142,18 +142,26 @@ class RecurringProcurementEvaluator:
             return ('unsatisfied' if 'unsatisfied' in values else 'unknown'
                     if not values or 'unknown' in values else 'satisfied')
 
+        missing = [item['name'] for item, observation in zip(criteria['items'], basket) if observation is None]
         add('full_basket_coverage', 'satisfied' if complete else 'unknown',
-            'Every exact item name is covered' if complete else 'At least one item has no exact-name observation')
+            f'Covered {len(observations)}/{len(criteria["items"])} exact requested items' +
+            ('; missing: ' + ', '.join(missing) if missing else '; no requested item missing'))
         compatible = complete and all(o['selling_unit'] == item['unit'] and
             (item['unit'] != 'pcs' or Decimal(str(item['quantity'])) ==
              Decimal(str(item['quantity'])).to_integral_value())
             for item, o in zip(criteria['items'], basket) if o is not None)
+        mismatched_units = [f'{item["name"]}: requested {item["unit"]}, observed {o["selling_unit"]}'
+            for item, o in zip(criteria['items'], basket) if o is not None and o['selling_unit'] != item['unit']]
         add('units_compatible', 'satisfied' if compatible and self.confirmed else 'unknown',
             'Confirmed normalized units match' if compatible and self.confirmed else
-            'Unit/package normalization or integral piece quantity cannot be established')
+            'Unit/package normalization or integral piece quantity cannot be established' +
+            ('; ' + '; '.join(mismatched_units) if mismatched_units else ''))
+        required_quality = [f'{item["name"]}: ' + ', '.join(item['requirements'])
+                            for item in criteria['items'] if item['requirements']]
         add('quality', 'satisfied' if complete and all(not i['requirements'] for i in criteria['items']) else 'unknown',
-            'No additional quality requirements' if all(not i['requirements'] for i in criteria['items']) else
-            'Observation.v1 has no structured quality requirements evidence')
+            'Observation.v1 has no structured quality requirements evidence; unknown: ' + '; '.join(required_quality)
+            if required_quality else 'No additional quality requirements' if complete else
+            'Quality coverage is unknown until every requested item is present')
         availability = []
         for item, observation in zip(criteria['items'], basket):
             if observation is None or observation['availability'] == 'unknown':
@@ -167,10 +175,15 @@ class RecurringProcurementEvaluator:
                 # prove that the requested kg/L/piece quantity is orderable.
                 availability.append('unknown')
         availability_status = combined(availability)
+        unknown_quantity = [f'{item["name"]}: {item["quantity"]} {item["unit"]}'
+            for item, observation in zip(criteria['items'], basket)
+            if observation is not None and observation['availability'] == 'in_stock'
+            and Decimal(str(item['quantity'])) != Decimal('1')]
         add('availability', availability_status,
             'Every requested quantity is exactly one in-stock normalized unit'
             if availability_status == 'satisfied' else
-            'A listing is unavailable, unknown, or lacks requested-quantity stock evidence')
+            'A listing is unavailable, unknown, or lacks requested-quantity stock evidence' +
+            ('; unknown quantities: ' + '; '.join(unknown_quantity) if unknown_quantity else ''))
         add('delivery', combined([{'yes': 'satisfied', 'no': 'unsatisfied', 'unknown': 'unknown'}[o['delivery_to_fi']]
             for o in observations]) if criteria['delivery_country'] == 'FI' else 'unknown',
             'Only FI delivery is representable in v1')
@@ -187,15 +200,18 @@ class RecurringProcurementEvaluator:
         add('reliability', 'satisfied' if checked else 'unknown', 'Every selected line must have checked evidence')
         shipping_total = 0
         shipping_known = complete and self.confirmed and checked and None not in sellers
+        uncertain_shipping = []
         for seller in sellers:
             charges = {o['shipping_eur_cents'] for o in observations if hostname(o) == seller}
             if None in charges or len(charges) != 1:
                 shipping_known = False
+                uncertain_shipping.append(seller or 'unknown seller')
             else:
                 shipping_total += next(iter(charges))
         add('shipping_known_by_seller', 'satisfied' if shipping_known else 'unknown',
             'Consistent shipping applied once per seller' if shipping_known else
-            'Merchant shipping missing, inconsistent or normalization unconfirmed')
+            'Merchant shipping missing, inconsistent or normalization unconfirmed' +
+            ('; unknown sellers: ' + ', '.join(sorted(uncertain_shipping)) if uncertain_shipping else ''))
         tax_known = complete and checked and self.confirmed and all(o['tax_eur_cents'] is not None for o in observations)
         add('tax_known', 'satisfied' if tax_known else 'unknown',
             'Confirmed additional tax applied once per selected line' if tax_known else 'Additional line tax is not established')

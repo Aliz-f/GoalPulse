@@ -11,7 +11,7 @@ Natural-language goal → strict `GoalDraft.v1` revisions → one clarifying que
 | Layer | Path | Notes |
 |---|---|---|
 | Domain | `goal_intelligence/domain/` | `money.py` Decimal EUR → int cents; `extraction.py` untrusted patch model (`extra="forbid"`); `compiler.py` missing fields, questions, readiness, GoalSpec schema check |
-| LLM | `goal_intelligence/llm/` | `base.py` retries/backoff/timeout/input limit; `fixture.py` deterministic offline extractor (default, used in CI); `anthropic.py` optional Messages API adapter (stdlib HTTP) |
+| LLM | `goal_intelligence/llm/` | `base.py` retries/backoff/timeout/input limit; `fixture.py` deterministic offline extractor (`test`/`dev` only, used in CI); `anthropic.py` Messages API adapter (stdlib HTTP, required in `demo`) |
 | Persistence | `goal_intelligence/persistence/repository.py` + `migrations/0001_init.sql` | Compare-and-set revisions, immutable `draft_revisions` (DB trigger), `llm_attempts` metadata only |
 | Use cases | `goal_intelligence/service.py` | Framework-free; typed service errors and exact revision handling |
 | HTTP | `goal_intelligence/api/app.py` | Frozen public `/v1/goal-sessions*`; internal `/internal/v1/goal-sessions/{id}/candidate` and `/mark-confirmed` (GM only) |
@@ -32,26 +32,49 @@ Natural-language goal → strict `GoalDraft.v1` revisions → one clarifying que
 ```bash
 cd services/goal-intelligence
 python -m pip install -r requirements.txt
-export GI_DATABASE_URL=postgresql://goalpulse_admin:<pw>@127.0.0.1:5432/goal_intelligence   # or sqlite:///gi.sqlite3 (no migrate step needed)
+export GOALPULSE_PROFILE=dev           # test | dev | demo (required; demo fails closed, see below)
+export GI_DATABASE_URL=postgresql://goal_intelligence:$GOAL_INTELLIGENCE_DB_PASSWORD@127.0.0.1:5432/goal_intelligence   # or sqlite:///gi.sqlite3
 python -m goal_intelligence.persistence.migrate              # applies migrations/*.sql once each (Postgres)
 export SERVICE_JWT_SECRET="<same 32+ char local issuer secret used by D1>"
 export SERVICE_JWT_ISSUER=goalpulse-internal-dev
 export SERVICE_JWT_AUDIENCE=goalpulse-internal
-export GI_LLM_PROVIDER=fixture          # or: anthropic (+ ANTHROPIC_API_KEY, optional GI_LLM_MODEL)
+export GI_LLM_PROVIDER=anthropic        # required, no default; `fixture` only in test/dev
+export GI_LLM_MODEL=<a model your Anthropic account can use>   # required for anthropic, no default
+export ANTHROPIC_API_KEY=...           # server-side only; never in the frontend
 uvicorn goal_intelligence.api.app:create_app --factory --port 8102
 ```
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `GI_DATABASE_URL` | — (required) | `postgresql://…` or `sqlite:///path` |
+| `GOALPULSE_PROFILE` | — (required) | `test`, `dev` or `demo` (ADR-0003 MVP-03). `demo` refuses the fixture and requires the Anthropic model and key; invalid config stops startup with `ConfigError` (no secret values in the message) |
+| `GI_DATABASE_URL` | — (required) | `postgresql://…` (use the `goal_intelligence` role) or `sqlite:///path` |
 | `SERVICE_JWT_SECRET` / `SERVICE_JWT_ISSUER` / `SERVICE_JWT_AUDIENCE` | — (required) | Accepted ICP-08 service-JWT verifier configuration; shared with the local D1 issuer |
-| `GI_LLM_PROVIDER` | `fixture` | `fixture` or `anthropic` |
-| `GI_LLM_MODEL` | `claude-haiku-4-5-20251001` | model for the anthropic provider |
-| `ANTHROPIC_API_KEY` | — | only for `anthropic` |
-| `GI_LLM_TIMEOUT_S` / `GI_LLM_MAX_ATTEMPTS` | `20` / `3` | per-attempt timeout, bounded retries |
+| `GI_LLM_PROVIDER` | — (required) | `anthropic`, or `fixture` in `test`/`dev` only. No automatic fallback between them |
+| `GI_LLM_MODEL` | — (required for anthropic) | A model your Anthropic account is entitled to; no hard-coded default |
+| `GI_LLM_EFFORT` | unset | Optional `low`/`medium`/`high`, sent as `output_config.effort`. Only for models that support effort (e.g. `claude-haiku-5-5`; recommended `low` for extraction). Leave unset for older models. |
+| `ANTHROPIC_API_KEY` | — (required for anthropic) | Server-side secret; never logged |
+| `GI_LLM_TIMEOUT_S` / `GI_LLM_MAX_ATTEMPTS` | `20` / `3` | per-attempt timeout (1–120 s), bounded retries (1–5) with exponential backoff |
 | `GI_MAX_MESSAGE_CHARS` / `GI_MAX_USER_TURNS` | `2000` / `20` | input and conversation bounds |
 
 Gateway contract (for Dev 1): forward public calls with a service JWT carrying `gi.session.write` and `X-Authenticated-User-Id: <uuid from the validated end-user JWT>`, and **strip any client-supplied copy of that header**. Pass a valid UUID `X-Correlation-ID` through; GI mints one only when absent and rejects malformed values. Never route `/internal/*` publicly. Goal Management uses `gi.candidate.read` for candidate reads and `gi.confirmation.write` for confirmation marks.
+
+## AI provider behavior (R2-D2-01)
+
+- **Disclosure:** `GET /healthz` returns the non-secret runtime, e.g. `{"profile": "demo", "llm_provider": "anthropic", "llm_model": "...", "goal_text_sent_to": "Anthropic (Messages API)"}`, and the same line is logged at startup. The frontend must tell users that goal text is sent to Anthropic (MVP-05; R2-D2-02 handoff). Use synthetic, non-sensitive goals in demos.
+- **Failure is visible and fails closed:** after bounded retries, a timeout, rate limit, server error or malformed/truncated model output applies **nothing**. The user's message is still recorded as revision N+1, but its candidate and missing fields equal N's, it is never confirmable (an already-ready draft drops back to `summary_approval`), and `next_question` starts with *"The AI assistant is unavailable right now, so nothing in your goal was changed…"*. There is no fallback to the fixture and no undocumented 503.
+- **Diagnosable errors:** `llm_attempts` records only error codes and latency: `timeout`, `rate_limited`, `malformed_output`, `provider_auth_failed`, `provider_forbidden`, `model_not_found`, `provider_rejected_request`. Permanent errors are not retried.
+- **Model output is untrusted:** it is parsed into a closed `ExtractionPatch` schema; questions, missing fields and readiness are decided by the deterministic compiler, and readiness still requires the user's explicit yes and a GoalSpec-valid candidate.
+- **Privacy:** logs never contain goal text, prompts, model responses or keys. Conversation text is stored in `conversation_messages` for the session; a demo-user cleanup procedure is part of R2-D1-03.
+
+### Live smoke test (chargeable, opt-in)
+
+```bash
+GI_LIVE_SMOKE=1 GOALPULSE_PROFILE=demo GI_LLM_PROVIDER=anthropic \
+GI_LLM_MODEL=<model> ANTHROPIC_API_KEY=... \
+python services/goal-intelligence/scripts/live_smoke.py
+```
+
+At most two model calls (retries off), throwaway SQLite, synthetic prompts. PASS requires two schema-valid, non-confirmable drafts with different questions; a wrong key or model prints its error code and FAIL.
 
 ## HTTP behavior and the frozen Gateway gap
 
@@ -91,5 +114,5 @@ ready drafts for both goal types, a collecting draft, an unsupported draft, the 
 
 ## Known gaps
 
-- The fixture extractor is English-only and rule-based; use the anthropic provider for free-form demo input.
+- The fixture extractor is English-only and rule-based and is for `test`/`dev` only; `demo` always uses Anthropic.
 - Gateway rate limiting is Dev 1's (D1-GW-01); GI only bounds message size and turns.

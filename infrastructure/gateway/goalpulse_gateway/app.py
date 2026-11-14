@@ -18,7 +18,7 @@ from .auth import AuthenticationError, HS256TokenVerifier, Principal, correlatio
 from .config import GatewaySettings
 from .proxy import HttpxProxyTransport, ProxyTransport
 from .sessions import DemoSession, DemoSessionManager, SessionError
-from .tokens import GATEWAY_SERVICE_SUBJECT, DownstreamTokenIssuer
+from .tokens import DownstreamTokenIssuer
 
 
 SESSION_COOKIE = "goalpulse_session"
@@ -204,7 +204,7 @@ def create_app(
     async def ready() -> Response:
         correlation = str(uuid.uuid4())
         try:
-            gi, gm = await asyncio.gather(
+            responses = await asyncio.gather(
                 proxy_transport.request(
                     "GET",
                     f"{config.goal_intelligence_url}/healthz",
@@ -212,20 +212,27 @@ def create_app(
                     content=b"",
                     params=[],
                 ),
-                proxy_transport.request(
-                    "GET",
-                    f"{config.goal_management_url}/v1/goals",
-                    headers={
-                        "Authorization": issuer.for_goal_management(GATEWAY_SERVICE_SUBJECT),
-                        "X-Correlation-ID": correlation,
-                    },
-                    content=b"",
-                    params=[],
+                *(
+                    proxy_transport.request(
+                        "GET",
+                        f"{origin}/health/ready",
+                        headers={"X-Correlation-ID": correlation},
+                        content=b"",
+                        params=[],
+                    )
+                    for origin in (
+                        config.goal_management_url,
+                        config.discovery_monitoring_url,
+                        config.data_evidence_url,
+                        config.goal_evaluation_url,
+                        config.notification_url,
+                        config.agent_integration_url,
+                    )
                 ),
             )
         except (httpx.TimeoutException, httpx.NetworkError):
             return JSONResponse(status_code=503, content={"status": "not_ready"})
-        if not (200 <= gi.status_code < 300 and 200 <= gm.status_code < 300):
+        if not all(200 <= response.status_code < 300 for response in responses):
             return JSONResponse(status_code=503, content={"status": "not_ready"})
         return JSONResponse({"status": "ready"})
 
@@ -280,15 +287,30 @@ def create_app(
         _clear_session_cookies(response, config)
         return response
 
-    async def forward(request: Request, *, service: str, path: str) -> Response:
+    async def forward(
+        request: Request,
+        *,
+        service: str,
+        path: str,
+        owner_scope: str | None = None,
+    ) -> Response:
         owner: uuid.UUID = request.state.principal.subject
         if service == "gi":
             base_url = config.goal_intelligence_url
             authorization = issuer.for_goal_intelligence()
             identity_headers = {"X-Authenticated-User-Id": str(owner)}
         else:
-            base_url = config.goal_management_url
-            authorization = issuer.for_goal_management(owner)
+            base_url = {
+                "gm": config.goal_management_url,
+                "ge": config.goal_evaluation_url,
+                "notification": config.notification_url,
+                "agent-integration": config.agent_integration_url,
+            }[service]
+            authorization = (
+                issuer.for_goal_management(owner)
+                if service == "gm"
+                else issuer.for_owner_service(owner, owner_scope or "")
+            )
             identity_headers = {}
         body = await request.body()
         if len(body) > config.request_body_limit_bytes:
@@ -343,5 +365,41 @@ def create_app(
     @app.patch("/v1/goals/{goal_id}/lifecycle")
     async def update_goal_lifecycle(goal_id: uuid.UUID, request: Request) -> Response:
         return await forward(request, service="gm", path=f"/v1/goals/{goal_id}/lifecycle")
+
+    @app.get("/v1/goals/{goal_id}/evaluations")
+    async def list_goal_evaluations(goal_id: uuid.UUID, request: Request) -> Response:
+        return await forward(
+            request,
+            service="ge",
+            path=f"/v1/goals/{goal_id}/evaluations",
+            owner_scope="ge.history.read",
+        )
+
+    @app.get("/v1/notifications")
+    async def list_notifications(request: Request) -> Response:
+        return await forward(
+            request,
+            service="notification",
+            path="/v1/notifications",
+            owner_scope="ns.notifications.read",
+        )
+
+    @app.patch("/v1/notifications/{notification_id}/read")
+    async def mark_notification_read(notification_id: uuid.UUID, request: Request) -> Response:
+        return await forward(
+            request,
+            service="notification",
+            path=f"/v1/notifications/{notification_id}/read",
+            owner_scope="ns.notifications.write",
+        )
+
+    @app.get("/v1/action-packages/{package_id}")
+    async def get_action_package(package_id: uuid.UUID, request: Request) -> Response:
+        return await forward(
+            request,
+            service="agent-integration",
+            path=f"/v1/action-packages/{package_id}",
+            owner_scope="ai.packages.read",
+        )
 
     return app

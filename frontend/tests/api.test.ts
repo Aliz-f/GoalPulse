@@ -91,12 +91,11 @@ describe("gateway client (frozen public contract)", () => {
     };
   }
 
-  it("sends bearer token, correlation id and exact bodies to /v1 paths", async () => {
+  it("uses the session cookie, a correlation id and exact bodies on /v1 paths; never a token", async () => {
     const calls: Call[] = [];
     const draft = { session_id: "s1", revision: 3 };
     const api = createGatewayApi({
       baseUrl: "http://localhost:8000/",
-      getToken: () => "jwt-123",
       fetchImpl: fakeFetch(200, draft, calls),
       newCorrelationId: () => "corr-1",
     });
@@ -105,32 +104,63 @@ describe("gateway client (frozen public contract)", () => {
     assert.equal(calls[0].url, "http://localhost:8000/v1/goal-sessions/s%201/messages");
     assert.deepEqual(JSON.parse(String(calls[0].init.body)), { message: "yes", expected_revision: 2 });
     const headers = calls[0].init.headers as Record<string, string>;
-    assert.equal(headers.Authorization, "Bearer jwt-123");
     assert.equal(headers["X-Correlation-ID"], "corr-1");
-    assert.equal(calls[0].init.credentials, "omit");
     assert.equal(calls[1].url, "http://localhost:8000/v1/goal-sessions/s1/confirm");
     assert.deepEqual(JSON.parse(String(calls[1].init.body)), { expected_revision: 3, approved: true });
-    // never sends an owner id: ownership comes from the token
-    for (const c of calls) assert.ok(!String(c.init.body).includes("owner_user_id"));
+    for (const c of calls) {
+      // identity is the HttpOnly cookie: sent by the browser, never read or set here
+      assert.equal(c.init.credentials, "include");
+      assert.equal(c.init.redirect, "error");
+      const h = c.init.headers as Record<string, string>;
+      assert.ok(!Object.keys(h).some((k) => /^(authorization|cookie)$/i.test(k)), "no auth header from the browser");
+      // never sends an owner id: ownership comes from the session
+      assert.ok(!String(c.init.body).includes("owner_user_id"));
+    }
   });
 
-  it("refuses to call without a token", async () => {
-    const calls: Call[] = [];
-    const api = createGatewayApi({ baseUrl: "http://gw", getToken: () => null, fetchImpl: fakeFetch(200, {}, calls) });
-    await assert.rejects(api.getSession("s1"), (e: ApiError) => e.kind === "not_signed_in");
-    assert.equal(calls.length, 0);
-  });
-
-  it("maps the ICP-01 {code, message} error body and network failures", async () => {
+  it("reports a 401 so the app can ask the user to sign in again", async () => {
+    let expired = 0;
     const api = createGatewayApi({
       baseUrl: "http://gw",
-      getToken: () => "t",
+      fetchImpl: fakeFetch(401, { code: "unauthorized", message: "session expired" }, []),
+      onUnauthorized: () => expired++,
+    });
+    await assert.rejects(api.listGoals(), (e: ApiError) => e.kind === "unauthorized");
+    assert.equal(expired, 1);
+    // other failures don't sign the user out
+    const busy = createGatewayApi({ baseUrl: "http://gw", fetchImpl: fakeFetch(503, {}, []), onUnauthorized: () => expired++ });
+    await assert.rejects(busy.listGoals(), (e: ApiError) => e.kind === "unavailable");
+    assert.equal(expired, 1);
+  });
+
+  it("sends nothing while signed out, and doesn't treat that as an expired session", async () => {
+    const calls: Call[] = [];
+    let expired = 0;
+    let signedIn = false;
+    const api = createGatewayApi({
+      baseUrl: "http://gw",
+      fetchImpl: fakeFetch(200, [], calls),
+      onUnauthorized: () => expired++,
+      canSend: () => signedIn,
+    });
+    await assert.rejects(api.listGoals(), (e: ApiError) => e.kind === "not_signed_in");
+    assert.equal(calls.length, 0);
+    assert.equal(expired, 0);
+    signedIn = true;
+    assert.deepEqual(await api.listGoals(), []);
+    assert.equal(calls.length, 1);
+  });
+
+  it("maps the ICP-01 {code, message} error body, non-JSON success and network failures", async () => {
+    const api = createGatewayApi({
+      baseUrl: "http://gw",
       fetchImpl: fakeFetch(409, { code: "conflict", message: "stale revision; reload the draft" }, []),
     });
     await assert.rejects(api.sendMessage("s", "m", 6), (e: ApiError) => e.kind === "conflict" && e.code === "conflict" && e.message === "stale revision; reload the draft");
+    const html = createGatewayApi({ baseUrl: "http://gw", fetchImpl: async () => new Response("<html>", { status: 200 }) });
+    await assert.rejects(html.getSession("s"), (e: ApiError) => e.kind === "server");
     const offline = createGatewayApi({
       baseUrl: "http://gw",
-      getToken: () => "t",
       fetchImpl: async () => {
         throw new TypeError("Failed to fetch");
       },
@@ -138,10 +168,14 @@ describe("gateway client (frozen public contract)", () => {
     await assert.rejects(offline.getSession("s"), (e: ApiError) => e.kind === "network");
   });
 
-  it("only accepts an http(s) gateway URL", () => {
+  it("only accepts an http(s) gateway origin", () => {
     assert.equal(normalizeBaseUrl("https://api.example.com/"), "https://api.example.com");
     assert.throws(() => normalizeBaseUrl(""));
     assert.throws(() => normalizeBaseUrl("javascript:alert(1)"));
+    assert.throws(() => normalizeBaseUrl("http://gw/v1"), "an origin, not a path");
+    assert.throws(() => normalizeBaseUrl("http://user:secret@gw"), "credentials are public in a NEXT_PUBLIC value");
+    assert.throws(() => normalizeBaseUrl("http://gw?route=v1"), "an origin has no query");
+    assert.throws(() => normalizeBaseUrl("http://gw#v1"), "an origin has no fragment");
   });
 });
 

@@ -11,8 +11,9 @@ from contextlib import contextmanager
 from datetime import datetime
 import json
 from typing import Any, Protocol
+from uuid import UUID
 
-from .ledger import Attempt, AttemptConflict, Capture
+from .ledger import Attempt, AttemptConflict, Capture, timestamp
 
 
 class Cursor(Protocol):
@@ -58,6 +59,98 @@ class PostgresRepository:
 class PostgresTransaction:
     def __init__(self, cursor: Cursor) -> None:
         self.cursor = cursor
+
+    def lock_source(self, source_id: str) -> None:
+        """Serialize source ingestion and checking within the owning DB only."""
+        self.cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (source_id,))
+
+    def get_observation(self, observation_id: str) -> dict | None:
+        self.cursor.execute("SELECT payload FROM observations WHERE observation_id = %s", (observation_id,))
+        row = self.cursor.fetchone()
+        return row[0] if row else None
+
+    def get_attempt_id(self, observation_id: str) -> str:
+        self.cursor.execute("SELECT extraction_attempt_id FROM observations WHERE observation_id = %s",
+                            (observation_id,))
+        row = self.cursor.fetchone()
+        if row is None:
+            raise ValueError("Observation does not exist")
+        return str(row[0])
+
+    def get_capture(self, observation_id: str) -> Capture | None:
+        self.cursor.execute(
+            """SELECT a.source_id, a.source_url, a.provider, a.extraction_method,
+                      a.fetched_at, p.provider_request_id, a.provider_observed_at,
+                      p.cache_age_ms, p.parser_version, p.field_sources
+               FROM observations o
+               JOIN extraction_attempts a ON a.attempt_id = o.extraction_attempt_id
+               JOIN observation_provenance p ON p.observation_id = o.observation_id
+               WHERE o.observation_id = %s""", (observation_id,))
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+        return Capture(source_id=UUID(str(row[0])), source_url=row[1], provider=row[2],
+                       extraction_method=row[3], fetched_at=row[4], provider_request_id=row[5],
+                       provider_observed_at=row[6], cache_age_ms=row[7], parser_version=row[8],
+                       field_sources=row[9])
+
+    def get_check(self, check_id: str) -> dict | None:
+        self.cursor.execute(
+            """SELECT check_id, original_observation_id, result_observation_id, decision,
+                      reasons, policy_version, normalizer_version, request_fingerprint,
+                      input_digest, proof_digest, proof, correlation_id, checked_at
+               FROM evidence_checks WHERE check_id = %s""", (check_id,))
+        row = self.cursor.fetchone()
+        if row is None:
+            return None
+        audit = dict(zip(("check_id", "original_observation_id", "result_observation_id", "decision",
+                          "reasons", "policy_version", "normalizer_version", "request_fingerprint",
+                          "input_digest", "proof_digest", "proof", "correlation_id", "checked_at"), row))
+        for key in ("check_id", "original_observation_id", "result_observation_id", "correlation_id"):
+            if audit[key] is not None:
+                audit[key] = str(audit[key])
+        audit["checked_at"] = timestamp(audit["checked_at"])
+        return audit
+
+    def proof_used(self, proof_digest: str) -> bool:
+        self.cursor.execute("SELECT 1 FROM evidence_checks WHERE proof_digest = %s AND decision = 'checked'",
+                            (proof_digest,))
+        return self.cursor.fetchone() is not None
+
+    def source_observations(self, source_id: str, since: datetime) -> list[dict]:
+        self.cursor.execute(
+            """SELECT o.payload FROM observations o
+               WHERE o.source_id = %s AND o.observed_at >= %s
+                 AND NOT EXISTS (SELECT 1 FROM evidence_checks c
+                                 WHERE c.original_observation_id = o.observation_id
+                                   AND c.result_observation_id IS NOT NULL)
+               ORDER BY o.observed_at DESC, o.created_at DESC, o.observation_id DESC""", (source_id, since))
+        return [row[0] for row in self.cursor.fetchall()]
+
+    def current_claims(self, source_id: str, observed_at: datetime) -> list[dict]:
+        """Return current checked audit claims for one immutable capture time."""
+        self.cursor.execute(
+            """SELECT c.proof->'claims' FROM evidence_checks c
+               JOIN observations o ON o.observation_id = c.result_observation_id
+               WHERE c.decision = 'checked' AND o.source_id = %s AND o.observed_at = %s
+                 AND jsonb_typeof(c.proof->'claims') = 'object'
+                 AND NOT EXISTS (SELECT 1 FROM evidence_checks newer
+                                 WHERE newer.original_observation_id = o.observation_id
+                                   AND newer.result_observation_id IS NOT NULL)
+               ORDER BY c.checked_at DESC, c.check_id DESC""", (source_id, observed_at))
+        return [row[0] for row in self.cursor.fetchall() if isinstance(row[0], dict)]
+
+    def add_check(self, audit: dict) -> None:
+        self.cursor.execute(
+            """INSERT INTO evidence_checks
+               (check_id, original_observation_id, result_observation_id, decision, reasons,
+                policy_version, normalizer_version, request_fingerprint, input_digest,
+                proof_digest, proof, correlation_id, checked_at)
+               VALUES (%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)""",
+            (audit["check_id"], audit["original_observation_id"], audit["result_observation_id"],
+             audit["decision"], encoded(audit["reasons"]), audit["policy_version"],
+             audit["normalizer_version"], audit["request_fingerprint"], audit["input_digest"],
+             audit["proof_digest"], encoded(audit["proof"]), audit["correlation_id"], audit["checked_at"]))
 
     def add_attempt(self, attempt: Attempt) -> tuple[str, bool]:
         capture = attempt.capture

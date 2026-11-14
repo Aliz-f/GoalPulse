@@ -1,5 +1,13 @@
 # Developer 3 current status — 2026-11-14
 
+Phase 2 update: R2-D3-02 implements the internal checked policy and its second
+owned migration; see [the checked-policy report](R2-D3-02-CHECKED-POLICY.md).
+R2-D3-01 adds real runtime composition and recorded HTTP pipeline acceptance;
+see [the current pipeline report](../../discovery-monitoring/reports/R2-D3-01-PRODUCTION-PIPELINE.md).
+Actual provider/DB/broker/GE acceptance remains pending the running stack. The
+Phase 1 status below is historical; later task reports supersede its old pending
+policy/runtime and migration-count statements.
+
 ## Completion status
 
 Components cover every Developer 3 task area. **The eleven tasks are not all
