@@ -1,0 +1,2 @@
+# Approved repository stack; no broker/DB/HTTP framework is selected by this task.
+jsonschema>=4.21,<5

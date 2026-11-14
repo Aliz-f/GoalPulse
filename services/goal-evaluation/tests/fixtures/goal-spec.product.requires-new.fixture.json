@@ -1,0 +1,32 @@
+{
+  "goal_id": "ae000000-0000-4000-8000-000000000002",
+  "owner_user_id": "ae000000-0000-4000-8000-000000000001",
+  "version": 1,
+  "title": "Buy RTX 5070 at or under EUR 600 delivered",
+  "goal_type": "product_purchase",
+  "criteria": {
+    "kind": "product_purchase",
+    "product": {
+      "query": "NVIDIA GeForce RTX 5070",
+      "match_policy": "equivalent_allowed",
+      "condition": "new",
+      "required_attributes": {
+        "gpu_model": "RTX 5070"
+      }
+    },
+    "quantity": 1,
+    "max_total_eur_cents": 60000,
+    "delivery_country": "FI",
+    "include_shipping_and_tax": true
+  },
+  "monitoring": {
+    "frequency_minutes": 1440,
+    "max_evidence_age_minutes": 60
+  },
+  "actions": {
+    "notify_user": true,
+    "agent_handoff": "prepare_only",
+    "auto_purchase": false
+  },
+  "approved_at": "2026-11-14T10:00:00Z"
+}
