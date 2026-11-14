@@ -8,9 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID, uuid4
-import json
-
-from jsonschema import Draft202012Validator, FormatChecker
+from urllib.parse import urlsplit
 
 from .context_provider import Provider, ProviderError, ScrapeResult
 from .registry import Source, canonical_url
@@ -22,6 +20,11 @@ class Runtime:
     goal_id: UUID
     current_version: int
     lifecycle: str
+
+    def __post_init__(self) -> None:
+        if (not isinstance(self.goal_id, UUID) or type(self.current_version) is not int
+                or self.current_version < 1 or self.lifecycle not in ("active", "paused", "cancelled", "completed")):
+            raise ValueError("Invalid authenticated goal runtime")
 
 
 class GoalReader(Protocol):
@@ -86,7 +89,6 @@ class DiscoveryWorker:
                     url = canonical_url(item["url"], self.registry.resolver)
                 except ProviderError:
                     continue
-                from urllib.parse import urlsplit
                 host = urlsplit(url).hostname
                 def matches(domain):
                     return host == domain.lower() or host.endswith("." + domain.lower())

@@ -101,3 +101,17 @@ def test_oversized_body_rejected_before_secret_lookup():
         subject.receive(config(), b"a" * 262145, {})
     assert error.value.status == 413
     subject.secrets.get.assert_not_called()
+
+
+def test_reserialized_signed_replay_has_same_semantic_deduplication_hash():
+    subject, store = receiver()
+    cfg = config()
+    raw, headers = delivery()
+    subject.receive(cfg, raw, headers)
+    first_hash = store.accept.call_args.args[3]
+    new_raw = json.dumps(json.loads(raw), indent=2, sort_keys=True).encode()
+    stamp = str(int(NOW.timestamp()))
+    digest = hmac.new(SECRET.encode(), stamp.encode() + b"." + new_raw, sha256).hexdigest()
+    headers["X-Context-Signature"] = f"t={stamp},v1={digest}"
+    subject.receive(cfg, new_raw, headers)
+    assert store.accept.call_args.args[3] == first_hash

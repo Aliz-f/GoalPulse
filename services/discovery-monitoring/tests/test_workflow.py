@@ -112,3 +112,17 @@ def test_event_is_persisted_before_consumer_can_ack():
     assert inbox.accept(event) is False
     with pytest.raises(OSError):
         inbox.accept(event)
+
+
+@pytest.mark.parametrize("field,value", [("occurred_at", "2026-11-14T10:00:00"),
+                                         ("goal_version", 1.0)])
+def test_activation_rejects_timezone_free_time_and_float_version(field, value):
+    event = json.loads((ROOT / "contracts/examples/event.goal-activated.json").read_text(encoding="utf-8"))
+    if field == "goal_version":
+        event["payload"][field] = value
+    else:
+        event[field] = value
+    store = Mock()
+    with pytest.raises(ValidationError):
+        ActivationInbox(store, schema_directory=ROOT / "contracts/schemas").accept(event)
+    store.accept.assert_not_called()

@@ -1,18 +1,36 @@
 """PostgreSQL transaction helper for the owned Discovery & Monitoring database."""
 
 from contextlib import contextmanager
+from collections.abc import Callable, Iterator
 from hashlib import sha256
 from pathlib import Path
+from typing import Any, Protocol
+
+
+class Cursor(Protocol):
+    def __enter__(self) -> "Cursor": ...
+    def __exit__(self, *args: Any) -> Any: ...
+    def execute(self, query: str, params: tuple = ()) -> Any: ...
+    def fetchone(self) -> tuple | None: ...
+    def fetchall(self) -> list[tuple]: ...
+
+
+class Connection(Protocol):
+    autocommit: bool
+    def cursor(self) -> Cursor: ...
+    def commit(self) -> None: ...
+    def rollback(self) -> None: ...
+    def close(self) -> None: ...
 
 
 class Database:
     """Inject a fresh psycopg 3 connection factory; no driver is installed here."""
 
-    def __init__(self, connect):
+    def __init__(self, connect: Callable[[], Connection]) -> None:
         self.connect = connect
 
     @contextmanager
-    def transaction(self):
+    def transaction(self) -> Iterator[Cursor]:
         connection = self.connect()
         try:
             if connection.autocommit:

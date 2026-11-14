@@ -98,11 +98,15 @@ class WebhookReceiver:
                     raise ValueError
             if monitor != config.provider_monitor_id or not identifier(run_id):
                 raise ValueError
+            # Signature verification always uses raw bytes. Deduplication compares
+            # canonical JSON so a legitimate reserialization does not conflict.
+            payload_hash = sha256(json.dumps(event, sort_keys=True, separators=(",", ":"),
+                                              allow_nan=False).encode()).hexdigest()
         except (ValueError, KeyError, TypeError, AttributeError):
             raise WebhookError("INVALID_PROVIDER_EVENT", 400) from None
         # Persist only IDs + hash. Webhook excerpts and target URLs cannot request
         # fetches. Workers resolve the registered source and recheck subscriptions.
-        accepted = self.store.accept(config, event["id"], run_id, sha256(raw).hexdigest(),
+        accepted = self.store.accept(config, event["id"], run_id, payload_hash,
                                      changed=changed, received_at=now)
         return accepted, changed
 
