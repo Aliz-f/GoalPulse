@@ -250,3 +250,20 @@ class EvidenceLedger:
                 self.event_validator.validate(event)
                 tx.enqueue(event, now)
             return Stored(True, attempt_id, observation_id, duplicate=not created)
+
+    def record_failure(self, capture: Capture, *, reason: str,
+                       fingerprint_data: dict, correlation_id: UUID) -> Stored:
+        """Persist a private normalizer failure without inventing an Observation."""
+        allowed = {"UNSUPPORTED_CURRENCY", "UNSUPPORTED_DESTINATION", "MISSING_UNIT_PRICE",
+                   "MISSING_PRODUCT_NAME", "INVALID_UNIT", "UNKNOWN_PACKAGING", "INVALID_MONEY",
+                   "NON_INTEGRAL_PRICE", "INVALID_FACTS", "CONFLICTING_TAX", "UNKNOWN_OBSERVED_AT"}
+        if reason not in allowed or not isinstance(correlation_id, UUID):
+            raise ValueError("Invalid internal failure metadata")
+        now = utc(self.clock())
+        fingerprint = digest({"source_id": str(capture.source_id), "reason": reason,
+                              "request_id": capture.provider_request_id,
+                              "fetched_at": timestamp(capture.fetched_at), "facts": fingerprint_data})
+        with self.repository.transaction() as tx:
+            attempt_id, created = tx.add_attempt(Attempt(str(uuid4()), capture, fingerprint,
+                                                        "rejected", reason, now))
+            return Stored(False, attempt_id, duplicate=not created, reason=reason)
