@@ -45,8 +45,21 @@ From repository root, after installing the existing development requirements:
 .venv/Scripts/python.exe services/discovery-monitoring/probe_context.py https://PUBLIC-MERCHANT/PRODUCT
 ```
 
-Set `CONTEXT_DEV_API_KEY` only in the local process environment. The opt-in probe
-spends provider credits on an example.com smoke request and one product scrape;
+For local configuration, edit `services/discovery-monitoring/.env` and replace
+`replace_with_your_context_dev_api_key` with your real key:
+
+```dotenv
+CONTEXT_DEV_API_KEY=replace_with_your_context_dev_api_key
+```
+
+The probe automatically reads this service-local file regardless of its working
+directory. `.env` is ignored by Git; `.env.example` contains only the placeholder
+template for fresh checkouts. An existing process environment variable takes
+precedence (including an explicitly empty value). The loader reads only this key;
+it does not execute shell commands or expand variable references. Keep comments
+on separate lines. No third-party configuration dependency is required.
+
+The opt-in probe spends provider credits on an example.com smoke request and one product scrape;
 it creates no monitors. Its JSON output contains coverage flags and cache age,
 never raw page text, product values, secrets or query-bearing URLs. Exit 2 means
 NOT RUN (missing key); exit 1 means extraction limited/failed; exit 0 means a

@@ -196,10 +196,12 @@ def test_non_product_success_has_no_product_coverage():
     assert not report["price_present"] and not report["product_name_present"]
 
 
-def test_probe_without_key_reports_not_run(monkeypatch, capsys):
+def test_probe_without_key_reports_not_run(monkeypatch, capsys, tmp_path):
+    from goalpulse_discovery import config
     from goalpulse_discovery.probe import main
 
     monkeypatch.delenv("CONTEXT_DEV_API_KEY", raising=False)
+    monkeypatch.setattr(config, "LOCAL_ENV_FILE", tmp_path / "missing.env")
     monkeypatch.setattr("sys.argv", ["probe", "https://example.com/item"])
     assert main() == 2
     assert json.loads(capsys.readouterr().out)["status"] == "NOT RUN"

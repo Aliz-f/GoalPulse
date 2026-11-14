@@ -6,8 +6,8 @@ import argparse
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
-import os
 
+from .config import ConfigurationError, read_context_api_key
 from .context_provider import ContextProvider, ProviderError, ScrapeResult
 
 
@@ -35,7 +35,11 @@ def main() -> int:
     parser.add_argument("product_url", help="A public HTTPS product page that permits access")
     args = parser.parse_args()
     report: dict = {"kind": "live", "run_at": datetime.now(timezone.utc).isoformat(), "checks": []}
-    api_key = os.environ.get("CONTEXT_DEV_API_KEY")
+    try:
+        api_key = read_context_api_key()
+    except ConfigurationError as error:
+        print(json.dumps({**report, "status": "NOT RUN", "reason": str(error)}))
+        return 2
     if not api_key:
         print(json.dumps({**report, "status": "NOT RUN", "reason": "CONTEXT_DEV_API_KEY is not configured"}))
         return 2
