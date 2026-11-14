@@ -32,7 +32,10 @@ class ConfirmingPublisher:
     def publish_confirmed(self, routing_key: str, body: dict[str, Any]) -> None:
         try:
             self._connect()
-            confirmed = self._channel.basic_publish(
+            # BlockingChannel raises UnroutableError/NackError when delivery
+            # confirmation fails.  A successful confirmed publish returns
+            # None, so the absence of an exception is the acknowledgement.
+            self._channel.basic_publish(
                 exchange="goalpulse.events",
                 routing_key=routing_key,
                 body=json.dumps(body, separators=(",", ":")),
@@ -45,8 +48,6 @@ class ConfirmingPublisher:
                 ),
                 mandatory=True,
             )
-            if not confirmed:
-                raise RuntimeError("publisher confirm failed")
         except Exception:
             self.close()
             raise

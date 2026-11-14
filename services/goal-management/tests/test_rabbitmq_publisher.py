@@ -26,7 +26,9 @@ class Channel:
 
     def basic_publish(self, **kwargs):
         self.published.append(kwargs)
-        return True
+        # pika.BlockingChannel returns None after a successful synchronous
+        # publisher confirmation and raises for nack/unroutable delivery.
+        return None
 
 
 class Connection:
