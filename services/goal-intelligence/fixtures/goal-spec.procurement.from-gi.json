@@ -1,0 +1,44 @@
+{
+  "goal_id": "ae000000-0000-4000-8000-0000000000e2",
+  "owner_user_id": "ae000000-0000-4000-8000-00000000000a",
+  "version": 1,
+  "title": "Monthly supplies under EUR 212.50",
+  "goal_type": "recurring_procurement",
+  "criteria": {
+    "cadence": "monthly",
+    "current_total_eur_cents": 25000,
+    "delivery_country": "FI",
+    "include_shipping_and_tax": true,
+    "items": [
+      {
+        "name": "Lactose-free milk",
+        "quantity": 20,
+        "requirements": [
+          "lactose free"
+        ],
+        "unit": "L"
+      },
+      {
+        "name": "Coffee beans",
+        "quantity": 10,
+        "requirements": [
+          "whole beans"
+        ],
+        "unit": "kg"
+      }
+    ],
+    "kind": "recurring_procurement",
+    "max_distinct_sellers": 3,
+    "max_total_eur_cents": 21250
+  },
+  "monitoring": {
+    "frequency_minutes": 1440,
+    "max_evidence_age_minutes": 240
+  },
+  "actions": {
+    "agent_handoff": "prepare_only",
+    "auto_purchase": false,
+    "notify_user": true
+  },
+  "approved_at": "2026-11-14T12:00:00Z"
+}
