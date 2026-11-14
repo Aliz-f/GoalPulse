@@ -1,0 +1,293 @@
+openapi: 3.1.0
+info:
+  title: GoalPulse Phase 2 additive Gateway contract
+  version: 1.0.0
+  description: >-
+    Accepted Phase 2 additive contract authored by R2-D1-00. This document does
+    not replace contracts/openapi/gateway.v1.yaml and does not expose internal
+    service routes. Owner identity is always derived by Gateway from a validated
+    external bearer token or, only in the isolated demo profile, a short-lived
+    HttpOnly session cookie. Runtime implementation is tracked separately.
+servers:
+  - url: http://localhost:8000
+security:
+  - BearerAuth: []
+  - DemoSession: []
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Validated external user token; never an internal service token.
+    DemoSession:
+      type: apiKey
+      in: cookie
+      name: goalpulse_session
+      description: >-
+        Short-lived HttpOnly session enabled only when GOALPULSE_PROFILE=demo.
+        It is not a production identity provider.
+  parameters:
+    GoalId:
+      name: goal_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    NotificationId:
+      name: notification_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    PackageId:
+      name: package_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  schemas:
+    DemoLogin:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username: {type: string, minLength: 1, maxLength: 128}
+        password: {type: string, minLength: 1, maxLength: 1024}
+    DemoUser:
+      type: object
+      additionalProperties: false
+      required: [user_id, display_name, expires_at]
+      properties:
+        user_id: {type: string, format: uuid}
+        display_name: {type: string, minLength: 1, maxLength: 200}
+        expires_at: {type: string, format: date-time}
+    Notification:
+      type: object
+      additionalProperties: false
+      required: [notification_id, goal_id, goal_version, title, summary, created_at, is_read]
+      properties:
+        notification_id: {type: string, format: uuid}
+        goal_id: {type: string, format: uuid}
+        goal_version: {type: integer, minimum: 1}
+        title: {type: string, minLength: 1, maxLength: 300}
+        summary: {type: string, minLength: 1, maxLength: 2000}
+        created_at: {type: string, format: date-time}
+        is_read: {type: boolean}
+    SellerOrderItem:
+      type: object
+      additionalProperties: false
+      required:
+        - source_url
+        - observation_id
+        - observed_at
+        - item_name
+        - quantity
+        - unit
+        - unit_price_eur_cents
+        - total_item_eur_cents
+        - additional_tax_eur_cents
+      properties:
+        source_url:
+          type: string
+          format: uri
+          pattern: '^https?://'
+        observation_id: {type: string, format: uuid}
+        observed_at: {type: string, format: date-time}
+        item_name: {type: string, minLength: 1, maxLength: 512}
+        quantity:
+          type: string
+          pattern: '^(?:[1-9][0-9]*(?:\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*)$'
+        unit: {type: string, enum: [pcs, kg, L]}
+        unit_price_eur_cents: {type: integer, minimum: 0}
+        total_item_eur_cents: {type: integer, minimum: 0}
+        additional_tax_eur_cents: {type: integer, minimum: 0}
+    SellerOrder:
+      type: object
+      additionalProperties: false
+      required: [seller_domain, shipping_eur_cents, items]
+      properties:
+        seller_domain: {type: string, format: hostname}
+        shipping_eur_cents: {type: integer, minimum: 0}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: {$ref: '#/components/schemas/SellerOrderItem'}
+    ActionPackage:
+      type: object
+      additionalProperties: false
+      required:
+        - package_id
+        - schema_version
+        - goal_id
+        - goal_version
+        - evaluation_id
+        - created_at
+        - expires_at
+        - action_type
+        - approval_required
+        - auto_execute
+        - seller_orders
+        - total_eur_cents
+        - condition_codes
+        - next_action
+        - requires_checkout_revalidation
+      properties:
+        package_id: {type: string, format: uuid}
+        schema_version: {const: 1}
+        goal_id: {type: string, format: uuid}
+        goal_version: {type: integer, minimum: 1}
+        evaluation_id: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        action_type: {const: prepare_purchase}
+        approval_required: {const: true}
+        auto_execute: {const: false}
+        seller_orders:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: {$ref: '#/components/schemas/SellerOrder'}
+        total_eur_cents: {type: integer, minimum: 0}
+        condition_codes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {type: string, minLength: 1}
+        next_action: {const: request_user_approval}
+        requires_checkout_revalidation: {const: true}
+paths:
+  /v2/demo/sessions:
+    post:
+      tags: [Demo Auth]
+      operationId: createLocalDemoSession
+      x-goalpulse-demo-only: true
+      description: >-
+        Disabled outside the isolated demo profile. Validate one of two
+        pre-provisioned users server-side, rate-limit attempts, enforce allowed
+        Origin, and set a short-lived HttpOnly SameSite=Lax cookie. Cookie Secure
+        is mandatory under HTTPS. Never return a bearer or session token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DemoLogin'}
+      responses:
+        '200':
+          description: Authenticated demo identity; the secret session is cookie-only.
+          headers:
+            Set-Cookie:
+              description: HttpOnly demo session cookie; value is never exposed in JSON.
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DemoUser'}
+        '401': {description: Invalid demo credentials}
+        '403': {description: Origin or request-integrity check failed}
+        '429': {description: Too many authentication attempts}
+        '503': {description: Demo authentication is disabled for this profile}
+  /v2/demo/session:
+    get:
+      tags: [Demo Auth]
+      operationId: getLocalDemoSession
+      x-goalpulse-demo-only: true
+      security: [{DemoSession: []}]
+      responses:
+        '200':
+          description: Current non-secret demo identity.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DemoUser'}
+        '401': {description: Valid demo session required}
+        '503': {description: Demo authentication is disabled for this profile}
+  /v2/demo/sessions/logout:
+    post:
+      tags: [Demo Auth]
+      operationId: logoutLocalDemoSession
+      x-goalpulse-demo-only: true
+      security: [{DemoSession: []}]
+      description: Clear the cookie after same-origin and CSRF validation.
+      responses:
+        '204': {description: Session cookie cleared}
+        '401': {description: Valid demo session required}
+        '403': {description: Origin or CSRF validation failed}
+        '503': {description: Demo authentication is disabled for this profile}
+  /v1/goals/{goal_id}/evaluations:
+    get:
+      tags: [Goal Evaluation]
+      operationId: listOwnGoalEvaluations
+      x-goalpulse-owner-scoped: true
+      description: >-
+        Return evaluation history only when the goal belongs to the validated
+        principal. Missing and cross-owner goals have the same 404 response.
+      parameters:
+        - $ref: '#/components/parameters/GoalId'
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+      responses:
+        '200':
+          description: Owner-specific evaluation history, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items: {$ref: '../schemas/goal-evaluation.v1.schema.json'}
+        '401': {description: Authentication required}
+        '404': {description: Goal not found or not owned by the principal}
+  /v1/notifications:
+    get:
+      tags: [Notification]
+      operationId: listOwnNotifications
+      x-goalpulse-owner-scoped: true
+      description: Return only notifications owned by the validated principal.
+      parameters:
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+      responses:
+        '200':
+          description: Owner-specific in-app notification records, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items: {$ref: '#/components/schemas/Notification'}
+        '401': {description: Authentication required}
+  /v1/notifications/{notification_id}/read:
+    patch:
+      tags: [Notification]
+      operationId: markOwnNotificationRead
+      x-goalpulse-owner-scoped: true
+      description: >-
+        Idempotently mark an owned notification read after same-origin and CSRF
+        validation. Missing and cross-owner IDs have the same 404 response.
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '204': {description: Marked read or already read}
+        '401': {description: Authentication required}
+        '403': {description: Origin or CSRF validation failed}
+        '404': {description: Notification not found or not owned by the principal}
+  /v1/action-packages/{package_id}:
+    get:
+      tags: [Agent Integration]
+      operationId: getOwnAgentActionPackage
+      x-goalpulse-owner-scoped: true
+      x-goalpulse-phase: P1
+      description: >-
+        Return an immutable prepare-only package owned by the validated
+        principal. Missing and cross-owner IDs have the same 404 response. This
+        endpoint never authorizes purchase or checkout.
+      parameters:
+        - $ref: '#/components/parameters/PackageId'
+      responses:
+        '200':
+          description: Evidence-backed package requiring explicit user approval and checkout revalidation.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ActionPackage'}
+        '401': {description: Authentication required}
+        '404': {description: Package not found or not owned by the principal}
+        '410': {description: Package expired and cannot be used without rebuilding}

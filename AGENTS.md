@@ -165,3 +165,14 @@ Before handing off, provide a concise report with:
 6. **Risks and handoff:** blockers and what the next developer needs.
 
 **Definition of done:** correct behavior + matching contracts + relevant tests + no unauthorized cross-service edits + documented handoff. A code diff alone is not done.
+
+## 11. Phase 2 MVP guardrails (additive; see ADR-0003)
+
+- In Phase 2, also read `docs/adr/0003-phase2-mvp-decisions.md`, `docs/phase2/ARCHITECTURE.md`, `docs/phase2/CONTRACT-CHANGE-PLAN.md`, `tasks/phase2/MASTER-BACKLOG.md` and your assigned ticket before edits.
+- Product owner selected MVP-01 through MVP-20. They become repository-approved when D1 merges the ADR, decision log, and compatible versioned contract extensions. Do not bypass existing frozen v1 contracts or accepted ADRs.
+- Implement only the assigned task within owned paths. Stop and report actual source conflicts or security blockers; never silently choose new APIs or weaken provenance or authentication.
+- `demo` and non-test runtime MUST NOT route the frontend to mock, Goal Intelligence to fixture, or Data & Evidence to fixture. Unit tests and CI may use explicit fixtures. Provider failure is visible and never secretly replaced.
+- `checked` is determined by Data & Evidence internal verification per ADR-0003, never imported from Context.dev or an external caller; Goal Evaluation remains tri-state.
+- No external purchase, payment, or booking; no direct browser calls to LLM or Context.dev; no publicly exposed internal service APIs.
+- Do not change v1 schemas or events in place. Add versioned extensions only through a D1-owned coordinated PR.
+- Provide a per-task evidence-based PASS/FAIL/NOT RUN report and redacted smoke logs.

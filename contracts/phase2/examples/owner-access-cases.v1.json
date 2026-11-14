@@ -1,0 +1,49 @@
+{
+  "users": {
+    "owner_a": "ae000000-0000-4000-8000-000000000001",
+    "owner_b": "ae000000-0000-4000-8000-000000000099"
+  },
+  "cases": [
+    {
+      "name": "unauthenticated evaluation history",
+      "method": "GET",
+      "path": "/v1/goals/ae000000-0000-4000-8000-000000000002/evaluations",
+      "resource_owner": "owner_a",
+      "authenticated_as": null,
+      "expected_status": 401
+    },
+    {
+      "name": "owner reads own evaluation history",
+      "method": "GET",
+      "path": "/v1/goals/ae000000-0000-4000-8000-000000000002/evaluations",
+      "resource_owner": "owner_a",
+      "authenticated_as": "owner_a",
+      "expected_status": 200
+    },
+    {
+      "name": "other owner cannot discover goal",
+      "method": "GET",
+      "path": "/v1/goals/ae000000-0000-4000-8000-000000000002/evaluations",
+      "resource_owner": "owner_a",
+      "authenticated_as": "owner_b",
+      "expected_status": 404
+    },
+    {
+      "name": "other owner cannot mark notification read",
+      "method": "PATCH",
+      "path": "/v1/notifications/ae000000-0000-4000-8000-000000000020/read",
+      "resource_owner": "owner_a",
+      "authenticated_as": "owner_b",
+      "expected_status": 404
+    },
+    {
+      "name": "same owner mutation with invalid csrf",
+      "method": "PATCH",
+      "path": "/v1/notifications/ae000000-0000-4000-8000-000000000020/read",
+      "resource_owner": "owner_a",
+      "authenticated_as": "owner_a",
+      "request_integrity": "invalid",
+      "expected_status": 403
+    }
+  ]
+}
