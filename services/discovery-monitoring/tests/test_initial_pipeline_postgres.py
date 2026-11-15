@@ -26,8 +26,10 @@ def test_postgres_initial_plan_and_submission_intent_are_immutable(database):
             "extracted": {"product_name": None, "selling_unit": None, "unit_price_eur_cents": None,
                           "availability": "unknown", "delivery_to_fi": "unknown", "shipping_eur_cents": None,
                           "tax_eur_cents": None, "evidence_excerpt": "", "evidence_reliability": "unverified"}}
-    record = store.put(body, capture_metadata={"requested_at": "2026-11-14T12:00:00Z"})
-    assert record == {"submission": body, "receipt": None}
+    capture_metadata = {"requested_at": "2026-11-14T12:00:00Z"}
+    record = store.put(body, capture_metadata=capture_metadata)
+    assert record == {"submission": body, "receipt": None,
+                      "capture_metadata": capture_metadata}
     assert store.get(attempt_id) == record
     changed = deepcopy(body)
     changed["extracted"]["product_name"] = "different assertion"
@@ -36,7 +38,8 @@ def test_postgres_initial_plan_and_submission_intent_are_immutable(database):
     receipt = {"accepted": False, "observation_id": None, "reason": "MISSING_UNIT_PRICE"}
     store.complete(attempt_id, receipt)
     store.complete(attempt_id, {"accepted": True})  # First durable receipt wins.
-    assert store.get(attempt_id) == {"submission": body, "receipt": receipt}
+    assert store.get(attempt_id) == {"submission": body, "receipt": receipt,
+                                     "capture_metadata": capture_metadata}
     with pytest.raises(psycopg.Error) as error:
         with database.transaction() as cursor:
             cursor.execute("UPDATE extraction_deliveries SET submission='{}'::jsonb WHERE attempt_id=%s",

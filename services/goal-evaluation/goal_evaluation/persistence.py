@@ -270,8 +270,12 @@ class PostgresEvaluationTransaction(PostgresTransaction):
                 for row in self.cursor.fetchall()]
 
     def next_pending(self, now: datetime):
+        # A newly committed intent is immediately due. PostgreSQL's clock may be
+        # ahead of the worker clock; only rows with a failed attempt should wait
+        # for their application-calculated retry deadline.
         self.cursor.execute(
-            "SELECT event_id, event_json, attempts FROM outbox WHERE status='pending' AND next_retry_at<=%s "
+            "SELECT event_id, event_json, attempts FROM outbox WHERE status='pending' "
+            'AND (attempts=0 OR next_retry_at<=%s) '
             'ORDER BY next_retry_at,event_id LIMIT 1 FOR UPDATE SKIP LOCKED', (now,),
         )
         row = self.cursor.fetchone()

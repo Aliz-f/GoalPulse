@@ -85,10 +85,13 @@ def test_compose_mounts_bootstrap_and_broker_definitions():
         assert name in postgres_environment
 
 
-def test_gateway_is_only_application_port_and_services_use_private_networks():
+def test_only_frontend_and_gateway_bind_loopback_and_services_use_private_networks():
     compose = yaml.safe_load((INFRASTRUCTURE / "docker-compose.yml").read_text(encoding="utf-8"))
     services = compose["services"]
     assert services["gateway"]["ports"] == ["127.0.0.1:${GATEWAY_HOST_PORT:-8000}:8000"]
+    assert services["frontend"]["ports"] == ["127.0.0.1:${FRONTEND_HOST_PORT:-3000}:3000"]
+    assert services["frontend"]["depends_on"]["gateway"]["condition"] == "service_healthy"
+    assert services["frontend"]["networks"] == ["app"]
     api_services = (
         "goal-intelligence",
         "goal-management",
@@ -106,6 +109,7 @@ def test_gateway_is_only_application_port_and_services_use_private_networks():
     for service in api_services:
         assert set(services[service]["networks"]) == {"app", "data"}
     assert "data" not in services["gateway"]["networks"]
+    assert "data" not in services["frontend"]["networks"]
     for service in ("postgres", "rabbitmq"):
         assert "app" not in services[service].get("networks", [])
 
@@ -175,3 +179,17 @@ def test_demo_runtime_has_no_fixture_or_mock_fallback_in_compose():
     assert services["discovery-monitoring"]["environment"]["CONTEXT_DEV_API_KEY"] == "${CONTEXT_DEV_API_KEY:?Set CONTEXT_DEV_API_KEY}"
     assert "fixture" not in " ".join(services["data-evidence"]["command"])
     assert services["gateway"]["environment"]["NEXT_PUBLIC_API_MODE"] == "${NEXT_PUBLIC_API_MODE:-}"
+    frontend_args = services["frontend"]["build"]["args"]
+    assert frontend_args["NEXT_PUBLIC_GOALPULSE_PROFILE"] == "${GOALPULSE_PROFILE:?Set GOALPULSE_PROFILE}"
+    assert frontend_args["NEXT_PUBLIC_API_MODE"] == "${NEXT_PUBLIC_API_MODE:?Set NEXT_PUBLIC_API_MODE}"
+    assert frontend_args["NEXT_PUBLIC_GATEWAY_URL"] == "${NEXT_PUBLIC_GATEWAY_URL:-}"
+
+
+def test_frontend_image_is_node_22_standalone_and_non_root():
+    dockerfile = (ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
+    next_config = (ROOT / "frontend" / "next.config.ts").read_text(encoding="utf-8")
+    assert "node:22.21.0-bookworm-slim" in dockerfile
+    assert 'USER goalpulse' in dockerfile
+    assert 'CMD ["node", "server.js"]' in dockerfile
+    assert 'output: "standalone"' in next_config
+    assert 'poweredByHeader: false' in next_config

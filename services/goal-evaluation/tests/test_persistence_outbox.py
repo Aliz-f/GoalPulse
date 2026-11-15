@@ -382,7 +382,9 @@ def test_outbox_sql_skips_locked_and_tracks_terminal_failures():
     cursor.fetchone.return_value = None
     tx = PostgresEvaluationTransaction(cursor)
     assert tx.next_pending(NOW) is None
-    assert 'FOR UPDATE SKIP LOCKED' in cursor.execute.call_args.args[0]
+    pending_sql = cursor.execute.call_args.args[0]
+    assert 'FOR UPDATE SKIP LOCKED' in pending_sql
+    assert 'attempts=0 OR next_retry_at<=%s' in pending_sql
     tx.mark_failed('event', 5, NOW, True, 'publish_or_read_failed')
     assert cursor.execute.call_args.args[1][0] == 'failed'
     tx.mark_published('event', NOW)

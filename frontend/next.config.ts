@@ -38,6 +38,10 @@ function checkRuntime(env: NodeJS.ProcessEnv): void {
 if (!process.argv.includes("typegen")) checkRuntime(process.env);
 
 const nextConfig: NextConfig = {
+  // The VPS image copies only Next's traced production server and static assets.
+  // This keeps Node dependencies inside the build stage and runs as a non-root user.
+  output: "standalone",
+  poweredByHeader: false,
   // Playwright runs its own `next dev` with NEXT_DIST_DIR=.next-e2e. Next 16 holds an
   // exclusive lock inside the dist dir while `next dev` runs, so sharing `.next` with a
   // developer's `npm run dev` made the e2e web server exit 1 (R2-D2-03).
