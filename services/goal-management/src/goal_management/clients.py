@@ -1,6 +1,7 @@
 """Injectable internal HTTP clients owned by Goal Management."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 import uuid
 
@@ -20,14 +21,26 @@ class GoalIntelligenceClient:
         self,
         *,
         base_url: str,
-        service_bearer_token: str,
+        service_bearer_token: str | None = None,
+        token_provider: Callable[[str], str] | None = None,
         timeout_seconds: float = 5.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
+        if (service_bearer_token is None) == (token_provider is None):
+            raise ValueError("configure exactly one service token source")
         self._service_bearer_token = service_bearer_token
+        self._token_provider = token_provider
         self._timeout_seconds = timeout_seconds
         self._transport = transport
+
+    def _authorization(self, scope: str) -> str:
+        token = (
+            self._token_provider(scope)
+            if self._token_provider is not None
+            else self._service_bearer_token
+        )
+        return f"Bearer {token}"
 
     async def get_candidate(
         self,
@@ -36,7 +49,7 @@ class GoalIntelligenceClient:
         correlation_id: uuid.UUID,
     ) -> dict[str, Any] | None:
         headers = {
-            "Authorization": f"Bearer {self._service_bearer_token}",
+            "Authorization": self._authorization("gi.candidate.read"),
             "X-Correlation-ID": str(correlation_id),
         }
         try:
@@ -72,7 +85,7 @@ class GoalIntelligenceClient:
     ) -> None:
         """Best-effort post-commit UX mark; GM remains authoritative."""
         headers = {
-            "Authorization": f"Bearer {self._service_bearer_token}",
+            "Authorization": self._authorization("gi.confirmation.write"),
             "X-Correlation-ID": str(correlation_id),
         }
         try:

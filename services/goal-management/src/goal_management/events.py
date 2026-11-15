@@ -1,5 +1,6 @@
 """Outbox and inbox-safe handling for the two frozen Goal Management events."""
 from __future__ import annotations
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Any, Protocol
@@ -28,6 +29,7 @@ class Store(Protocol):
         goal_version: int,
         evaluation_id: str,
         status: str,
+        occurred_at: datetime,
     ) -> str: ...
 
 def publish_pending(store:Store,publisher:Publisher)->None:
@@ -43,6 +45,12 @@ def consume_evaluated(store:Store,event:dict[str,Any])->str:
         raise ValueError(f"invalid domain event: {validation_errors[0].message}")
     if event.get('event_type')!='goal.evaluated.v1' or event.get('producer')!='goal-evaluation': raise ValueError('invalid evaluation event')
     payload=event['payload']
+    if event.get('aggregate_id') != payload.get('goal_id'):
+        raise ValueError('evaluation aggregate does not match goal')
+    try:
+        occurred_at = datetime.fromisoformat(event['occurred_at'].replace('Z', '+00:00'))
+    except (TypeError, ValueError) as exc:
+        raise ValueError('invalid event occurred_at') from exc
     return store.process_evaluated(
         event_id=event['event_id'],
         event_type=event['event_type'],
@@ -50,4 +58,5 @@ def consume_evaluated(store:Store,event:dict[str,Any])->str:
         goal_version=payload['goal_version'],
         evaluation_id=payload['evaluation_id'],
         status=payload['status'],
+        occurred_at=occurred_at,
     )

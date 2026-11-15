@@ -20,3 +20,9 @@ def test_invalid_evaluation_event_is_rejected_before_inbox_write():
  e['schema_version']=2
  with pytest.raises(ValueError, match='invalid domain event'): consume_evaluated(s,e)
  assert not s.events
+
+def test_mismatched_aggregate_and_goal_are_rejected_before_inbox_write():
+ e=json.loads((Path(__file__).parents[3]/'contracts/examples/event.goal-evaluated.json').read_text()); s=Store()
+ e['aggregate_id']='ae000000-0000-4000-8000-000000000099'
+ with pytest.raises(ValueError, match='aggregate'): consume_evaluated(s,e)
+ assert not s.events

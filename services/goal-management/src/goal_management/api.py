@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 import psycopg
 
 from .clients import CandidateConflict, CandidateUnavailable
-from .repository import GoalVersionRecord
+from .repository import ConfirmationConflict, GoalVersionRecord
 
 
 log = logging.getLogger("goal_management.api")
@@ -41,13 +41,16 @@ class LifecycleRequest(BaseModel):
 
 
 class Reads(Protocol):
+    def get_confirmed_for_session(
+        self, session_id: uuid.UUID
+    ) -> tuple[dict[str, Any], int, uuid.UUID] | None: ...
     def get_version(self, goal_id: uuid.UUID, version: int) -> dict[str, Any] | None: ...
     def get_runtime(self, goal_id: uuid.UUID) -> dict[str, Any] | None: ...
     def list_active(self, cursor: uuid.UUID | None, limit: int) -> tuple[list[dict[str, Any]], uuid.UUID | None]: ...
     def list_for_owner(self, owner: uuid.UUID, status: str | None) -> list[dict[str, Any]]: ...
     def get_for_owner(self, owner: uuid.UUID, goal_id: uuid.UUID) -> dict[str, Any] | None: ...
     def transition(self, owner: uuid.UUID, goal_id: uuid.UUID, action: str) -> str: ...
-    def create_version_one(self, record: GoalVersionRecord) -> None: ...
+    def create_version_one(self, record: GoalVersionRecord) -> dict[str, Any] | None: ...
 
 
 class CandidateReader(Protocol):
@@ -65,6 +68,10 @@ class CandidateReader(Protocol):
         expected_revision: int,
         correlation_id: uuid.UUID,
     ) -> None: ...
+
+
+class Readiness(Protocol):
+    async def check(self) -> bool: ...
 
 
 _ROOT = Path(__file__).resolve().parents[4]
@@ -180,10 +187,21 @@ def create_app(
     reads: Reads,
     candidates: CandidateReader | None = None,
     *,
+    readiness: Readiness | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     goal_id_factory: Callable[[], uuid.UUID] = uuid.uuid4,
 ) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.get("/health/live", include_in_schema=False)
+    async def live() -> dict[str, str]:
+        return {"status": "live"}
+
+    @app.get("/health/ready", include_in_schema=False)
+    async def ready():
+        if readiness is not None and not await readiness.check():
+            return JSONResponse(status_code=503, content={"status": "not_ready"})
+        return {"status": "ready"}
 
     @app.middleware("http")
     async def internal_correlation(request: Request, call_next):
@@ -231,6 +249,14 @@ def create_app(
         authorization: str | None = Header(default=None),
     ):
         owner = _user(authorization)
+        existing = reads.get_confirmed_for_session(session_id)
+        if existing is not None:
+            spec, approved_revision, confirmed_owner = existing
+            if confirmed_owner != owner:
+                raise HTTPException(404, "session not found")
+            if approved_revision != body.expected_revision:
+                raise HTTPException(409, "session already confirmed at another revision")
+            return spec
         if candidates is None:
             raise HTTPException(503, "goal intelligence unavailable")
         correlation = _correlation_id(request.headers.get("X-Correlation-ID"))
@@ -259,7 +285,7 @@ def create_app(
         approved_at = clock()
         try:
             goal_spec = _assemble_goal_spec(candidate, goal_id=goal_id, owner_user_id=owner, approved_at=approved_at)
-            reads.create_version_one(
+            persisted = reads.create_version_one(
                 GoalVersionRecord(
                     goal_id=goal_id,
                     owner_user_id=owner,
@@ -271,8 +297,13 @@ def create_app(
                     correlation_id=correlation,
                 )
             )
+            if persisted is not None:
+                goal_spec = persisted
+                goal_id = uuid.UUID(goal_spec["goal_id"])
         except ValueError as exc:
             raise HTTPException(422, "GoalSpec validation failed") from exc
+        except ConfirmationConflict as exc:
+            raise HTTPException(409, "session already confirmed with incompatible data") from exc
         except psycopg.errors.UniqueViolation as exc:
             raise HTTPException(409, "session already confirmed") from exc
         try:

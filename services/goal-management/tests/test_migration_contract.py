@@ -9,3 +9,7 @@ def test_migration_has_owned_tables_and_reversible_downgrade():
     assert 'CREATE TRIGGER goal_versions_immutable' in text
     assert 'BEFORE UPDATE OR DELETE ON goal_versions' in text
     assert 'claimed_at TIMESTAMPTZ' in text
+
+def test_alembic_runtime_uses_installed_psycopg3_driver():
+    text=(ROOT/'alembic/env.py').read_text()
+    assert 'postgresql+psycopg://' in text
