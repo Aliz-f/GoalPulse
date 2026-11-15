@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "task": "R2-D1-03",
+  "lanes": {
+    "recorded": [
+      {
+        "id": "contracts",
+        "command": ["{python}", "scripts/validate_contracts.py"],
+        "timeout_seconds": 180,
+        "scenarios": ["A1", "A2", "B1", "B2", "B3", "B4", "B5", "C1", "C2", "D1", "D3", "D5"]
+      },
+      {
+        "id": "platform_gateway",
+        "command": ["{python}", "-m", "pytest", "-q", "tests", "infrastructure/tests", "infrastructure/gateway/tests"],
+        "timeout_seconds": 180,
+        "scenarios": ["A2", "D2", "D5"]
+      },
+      {
+        "id": "goal_intelligence",
+        "command": ["{python}", "-m", "pytest", "-q", "services/goal-intelligence/tests"],
+        "timeout_seconds": 180,
+        "scenarios": ["A1", "A2", "A3", "D2"]
+      },
+      {
+        "id": "goal_management",
+        "command": ["{python}", "-m", "pytest", "-q", "services/goal-management/tests"],
+        "timeout_seconds": 180,
+        "scenarios": ["A2", "A3", "D1", "D3"]
+      },
+      {
+        "id": "discovery_monitoring",
+        "command": ["{python}", "-m", "pytest", "-q", "services/discovery-monitoring/tests"],
+        "timeout_seconds": 180,
+        "scenarios": ["B1", "D1", "D2", "D3", "D4"]
+      },
+      {
+        "id": "data_evidence",
+        "command": ["{python}", "-m", "pytest", "-q", "services/data-evidence/tests"],
+        "timeout_seconds": 180,
+        "scenarios": ["B1", "B2", "B4", "D1", "D2"]
+      },
+      {
+        "id": "goal_evaluation",
+        "command": ["{python}", "-m", "pytest", "-q", "services/goal-evaluation/tests"],
+        "timeout_seconds": 180,
+        "scenarios": ["B2", "B3", "B5", "D1", "D2", "D3"]
+      },
+      {
+        "id": "notification",
+        "command": ["{python}", "-m", "pytest", "-q", "services/notification/tests"],
+        "timeout_seconds": 180,
+        "scenarios": ["C1", "C2", "D1", "D2", "D3"]
+      },
+      {
+        "id": "agent_integration",
+        "command": ["{python}", "-m", "pytest", "-q", "services/agent-integration/tests"],
+        "timeout_seconds": 180,
+        "scenarios": ["C3", "D1", "D2", "D3"]
+      }
+    ],
+    "durable": [
+      {
+        "id": "gi_postgres",
+        "command": ["{python}", "-m", "pytest", "-q", "-rs", "services/goal-intelligence/tests/test_gi_postgres.py"],
+        "scenarios": ["A1", "A2", "A3", "D5"]
+      },
+      {
+        "id": "gm_postgres",
+        "command": ["{python}", "-m", "pytest", "-q", "-rs", "services/goal-management/tests/test_goal_management_postgres_live.py"],
+        "scenarios": ["A2", "A3", "D1", "D3", "D5"]
+      },
+      {
+        "id": "discovery_postgres",
+        "command": [
+          "{python}", "-m", "pytest", "-q", "-rs",
+          "services/discovery-monitoring/tests/test_discovery_postgres_live.py",
+          "services/discovery-monitoring/tests/test_initial_pipeline_postgres.py",
+          "services/discovery-monitoring/tests/test_scheduler_postgres.py"
+        ],
+        "scenarios": ["B1", "D1", "D3", "D4", "D5"]
+      },
+      {
+        "id": "evidence_postgres",
+        "command": ["{python}", "-m", "pytest", "-q", "-rs", "services/data-evidence/tests/test_postgres_live.py"],
+        "scenarios": ["B2", "B4", "D1", "D5"]
+      },
+      {
+        "id": "evaluation_postgres_rabbit",
+        "command": ["{python}", "-m", "pytest", "-q", "-rs", "services/goal-evaluation/tests/test_ge_postgres_broker_live.py"],
+        "scenarios": ["B2", "B3", "B5", "D1", "D3", "D5"]
+      },
+      {
+        "id": "notification_postgres",
+        "command": ["{python}", "-m", "pytest", "-q", "-rs", "services/notification/tests/test_notification_postgres_live.py"],
+        "scenarios": ["C1", "C2", "D1", "D3", "D5"]
+      },
+      {
+        "id": "agent_postgres_rabbit",
+        "command": ["{python}", "-m", "pytest", "-q", "-rs", "services/agent-integration/tests/test_phase2_postgres_live.py"],
+        "scenarios": ["C3", "D1", "D3", "D5"]
+      }
+    ],
+    "frontend": [
+      {
+        "id": "frontend_types_lint_unit",
+        "cwd": "frontend",
+        "command": ["npm", "run", "typecheck"],
+        "scenarios": ["A1", "A2", "B2", "C1", "D2", "D5"]
+      },
+      {
+        "id": "frontend_lint",
+        "cwd": "frontend",
+        "command": ["npm", "run", "lint"],
+        "scenarios": ["D5"]
+      },
+      {
+        "id": "frontend_unit",
+        "cwd": "frontend",
+        "command": ["npm", "test"],
+        "scenarios": ["A1", "A2", "B2", "C1", "D2", "D5"]
+      },
+      {
+        "id": "frontend_demo_gateway_build",
+        "cwd": "frontend",
+        "command": ["npm", "run", "build"],
+        "env": {
+          "NEXT_PUBLIC_GOALPULSE_PROFILE": "demo",
+          "NEXT_PUBLIC_API_MODE": "gateway",
+          "NEXT_PUBLIC_GATEWAY_URL": "http://localhost:8000",
+          "NEXT_TELEMETRY_DISABLED": "1"
+        },
+        "scenarios": ["A2", "D2", "D5"]
+      },
+      {
+        "id": "frontend_refuses_demo_mock",
+        "cwd": "frontend",
+        "command": ["npm", "run", "build"],
+        "env": {
+          "NEXT_PUBLIC_GOALPULSE_PROFILE": "demo",
+          "NEXT_PUBLIC_API_MODE": "mock",
+          "NEXT_TELEMETRY_DISABLED": "1"
+        },
+        "unset_env": ["NEXT_PUBLIC_GATEWAY_URL"],
+        "expected_exit_code": 1,
+        "expected_output": "profile 'demo' requires NEXT_PUBLIC_API_MODE=gateway",
+        "scenarios": ["D2", "D5"]
+      },
+      {
+        "id": "frontend_refuses_missing_mode",
+        "cwd": "frontend",
+        "command": ["npm", "run", "build"],
+        "env": {"NEXT_TELEMETRY_DISABLED": "1"},
+        "unset_env": ["NEXT_PUBLIC_GOALPULSE_PROFILE", "NEXT_PUBLIC_API_MODE", "NEXT_PUBLIC_GATEWAY_URL"],
+        "expected_exit_code": 1,
+        "expected_output": "NEXT_PUBLIC_API_MODE must be mock or gateway",
+        "scenarios": ["D2", "D5"]
+      },
+      {
+        "id": "frontend_recorded_browser",
+        "cwd": "frontend",
+        "command": ["npm", "run", "e2e"],
+        "scenarios": ["A1", "A2", "A3", "B2", "C1", "D2", "D5"]
+      },
+      {
+        "id": "frontend_gateway_browser",
+        "cwd": "frontend",
+        "command": ["npm", "run", "e2e:gateway"],
+        "scenarios": ["A1", "A2", "A3", "B2", "C1", "D2", "D5"]
+      }
+    ],
+    "live": [
+      {
+        "id": "controlled_anthropic_context_main_path",
+        "manual": true,
+        "scenarios": ["A1", "B1", "B2", "D2", "D5"],
+        "reason": "Requires separately authorized provider credentials, a synthetic prompt, cost bounds, and operator review of the redacted artifact."
+      }
+    ]
+  },
+  "scenarios": {
+    "A1": {"title": "Goal creation and exact-revision confirmation", "live_required": true},
+    "A2": {"title": "Identity and two-owner isolation", "live_required": false},
+    "A3": {"title": "Persistence across process/connection restart", "live_required": false},
+    "B1": {"title": "Activation through Context adapter and evidence", "live_required": true},
+    "B2": {"title": "Missing facts remain Unknown", "live_required": true},
+    "B3": {"title": "Above-budget evidence is unsatisfied", "live_required": false},
+    "B4": {"title": "Only the internal checker assigns checked", "live_required": false},
+    "B5": {"title": "Controlled recorded Verified case", "live_required": false},
+    "C1": {"title": "Notification persistence and business deduplication", "live_required": false},
+    "C2": {"title": "Rate limit, pause suppression, and ownership", "live_required": false},
+    "C3": {"title": "Prepare-only action package (P1 if enabled)", "live_required": false, "optional": true},
+    "D1": {"title": "At-least-once replay, restart, and DLQ", "live_required": false},
+    "D2": {"title": "Provider outage is visible with no fixture fallback", "live_required": true},
+    "D3": {"title": "Paused or stale versions cannot produce positives", "live_required": false},
+    "D4": {"title": "Initial and periodic scheduling, quota, restart", "live_required": false},
+    "D5": {"title": "Python, frontend, and Compose release builds", "live_required": true}
+  }
+}

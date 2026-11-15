@@ -1,89 +1,120 @@
-# Local platform runbook
+# GoalPulse platform infrastructure
 
-This Compose stack is for local development only. Gateway is the only browser
-application endpoint and is bound to `127.0.0.1:8000`. Service HTTP ports are
-container-private. PostgreSQL and RabbitMQ remain loopback-only when published;
-their host ports can be changed with `POSTGRES_HOST_PORT`,
-`RABBITMQ_HOST_PORT`, and `RABBITMQ_MANAGEMENT_HOST_PORT`. Do not expose these
-ports or reuse sample passwords outside local development.
+`infrastructure/docker-compose.yml` is the single application stack for local
+development, CI verification, and the controlled VPS demo. It contains:
 
-## Start and verify
+- Next.js frontend and public FastAPI Gateway;
+- all seven private service APIs;
+- service-owned migration jobs and RabbitMQ workers;
+- PostgreSQL with one logical database/role per service;
+- RabbitMQ with the frozen topic exchange, durable queues, and DLQs.
+
+Nginx is not a Compose service. On a VPS it runs on the host and uses
+`nginx/goalpulse.conf.example` to proxy HTTPS to the loopback frontend and
+Gateway ports.
+
+## Central configuration
+
+The root `.env` is the only Compose environment file. Copy `.env.example`, keep
+it mode `0600`, and configure each domain section. The template exactly covers
+every `${...}` input in Compose.
 
 ```bash
+cp .env.example .env
+chmod 600 .env
+python3 infrastructure/release/validate_env.py --env-file .env
 docker compose -f infrastructure/docker-compose.yml --env-file .env config --quiet
-docker compose -f infrastructure/docker-compose.yml --env-file .env up -d --build
+```
+
+The validator never displays values. In `demo`, it fails closed unless the
+frontend uses Gateway, the public HTTPS origins match, demo identities are
+complete, Anthropic and Context.dev are selected, a real `pol_...` provider
+policy is present, and evidence fixtures are disabled.
+
+The frontend receives only three public build arguments: profile, API mode, and
+public Gateway origin. API keys, DB/broker passwords, session secrets, and JWT
+secrets are not passed into its image.
+
+## Start the whole stack
+
+```bash
+docker compose -f infrastructure/docker-compose.yml --env-file .env \
+  up -d --build --wait --wait-timeout 300
 docker compose -f infrastructure/docker-compose.yml --env-file .env ps
 ```
 
-This command declares PostgreSQL, RabbitMQ, migrations, all seven private service
-APIs, their P0/P1 workers, and Gateway. Gateway is the only application port
-published to the host. Each API has a dependency-aware readiness check; Gateway
-readiness is green only after every private API is green. Worker processes use
-the existing durable queues and do not publish alternate event names.
+Default host bindings are:
 
-Goal Evaluation uses ADR-0005's authenticated, bounded goal-version-to-sources
-read from Discovery Monitoring. The platform does not query Discovery's database
-or pretend the triggering source is the complete set. Any unavailable, malformed,
-over-bound or identity-mismatched response fails closed.
+| Endpoint | Binding | Exposure |
+|---|---|---|
+| Frontend | `127.0.0.1:3000` | Host Nginx or local browser |
+| Gateway | `127.0.0.1:8000` | Host Nginx or local diagnostics |
+| PostgreSQL | `127.0.0.1:5432` | Operator/local tooling only |
+| RabbitMQ AMQP | `127.0.0.1:5672` | Operator/local tooling only |
+| RabbitMQ management | `127.0.0.1:15672` | SSH tunnel/local only |
 
-Use `.env.example` to create `.env` and replace every development password.
-On the first boot, the PostgreSQL init script creates one non-superuser role
-and one database per service. `PUBLIC` is denied `CONNECT` to service
-databases; each service role receives `CONNECT` only to its own database.
-The bootstrap `POSTGRES_USER` is only for local initialization/admin work and
-must not be configured in any service.
+Override host-side ports in `.env` when necessary. Service APIs use `expose`
+only and remain on private Docker networks. Gateway and frontend cannot join the
+data-only network.
 
-After RabbitMQ becomes healthy, the one-shot `rabbitmq-init` service imports
-`rabbitmq/definitions.json`. It creates the
-durable topic exchange `goalpulse.events`, a durable classic queue for every
-declared consumer (five total because the verified-opportunity event fans out
-to Notification and Agent Integration), and a dedicated durable DLQ for each.
-Classic queue type matches the shipped consumer declarations; changing queue
-type requires a coordinated migration because RabbitMQ rejects inequivalent
-re-declarations.
-Applications must publish persistent messages (`delivery_mode=2`) with
-publisher confirms and consume with manual acknowledgement; this is an
-application-client setting, not a broker default.
-
-## Gateway and demo profile
-
-The Gateway validates either a signed user bearer token or, only when
-`GOALPULSE_PROFILE=demo`, the signed `goalpulse_session` HttpOnly cookie. Demo
-startup fails if the two users, session/JWT secrets, frontend gateway mode,
-Anthropic configuration, or Context.dev key is missing. Generate a password
-hash without putting plaintext on the command line:
+Check the integrated application:
 
 ```bash
-PYTHONPATH=infrastructure/gateway python -c \
-  'from getpass import getpass; from goalpulse_gateway.sessions import hash_demo_password; print(hash_demo_password(getpass()))'
+curl --fail --silent --show-error http://127.0.0.1:8000/health/ready
+curl --fail --silent --show-error --output /dev/null http://127.0.0.1:3000/
 ```
 
-Put only the resulting `pbkdf2_sha256$...` value in
-`GATEWAY_DEMO_USER_A_PASSWORD_HASH` or `GATEWAY_DEMO_USER_B_PASSWORD_HASH`.
-The frontend must use credentialed requests, copy the non-HttpOnly
-`goalpulse_csrf` cookie into `X-CSRF-Token` for mutations, and never read or
-store the session cookie/token.
+Stop without deleting data:
 
-The accepted Phase 2 owner reads are also exact routes: evaluation history,
-notifications/read acknowledgement and action packages. Gateway mints a
-60-second owner-bound service JWT with one of `ge.history.read`,
-`ns.notifications.read`, `ns.notifications.write`, or `ai.packages.read`.
-Private D4 adapters validate that token and never trust a browser owner header.
+```bash
+docker compose -f infrastructure/docker-compose.yml --env-file .env stop
+```
 
-## Topology smoke check
+Do not run `down -v` against retained data.
 
-Use the RabbitMQ management UI or API to verify `goalpulse.events` bindings.
-Publishing a valid `contracts/examples/event.goal-activated.json` fixture with
-routing key `goal.activated.v1` must arrive only in
-`goalpulse.discovery-monitoring.goal.activated.v1`. Stop a manual-ack consumer
-before acknowledgement to observe the broker requeue/redelivery flag. Reject
-or dead-letter only after the service's bounded retry policy; consumers must
-persist inbox/idempotency state before acknowledgement.
+## Bootstrap behavior
 
-## Existing volumes
+On a new PostgreSQL volume, `postgres/01-create-service-dbs.sh` creates one
+non-superuser role and one database per service. `PUBLIC` cannot connect to
+service databases; each service role receives only its own database access. The
+bootstrap admin is not used by application containers.
 
-PostgreSQL initialization runs only for new named volumes. If bootstrap roles
-change, preserve any data you need, then have a developer explicitly remove
-the local PostgreSQL volume and recreate the stack. Do not use a
-volume-removal command against shared or non-local environments. The RabbitMQ
-topology import is safe to rerun when the Compose stack starts.
+After RabbitMQ is healthy, the one-shot `rabbitmq-init` job imports
+`rabbitmq/definitions.json`. It declares `goalpulse.events`, per-consumer durable
+classic queues, and dedicated DLQs. Applications use persistent publication,
+publisher confirms, manual acknowledgements, bounded retry, inbox deduplication,
+and transactional outboxes where state and publication intent must be atomic.
+
+Initialization scripts run only for a new volume. Changing DB or RabbitMQ
+passwords in `.env` does not rotate credentials stored in an existing volume.
+
+## Profiles
+
+- `test`: deterministic tests with explicit fixtures/transports.
+- `dev`: local development; frontend may explicitly use `mock`.
+- `demo`: real Gateway, Anthropic, Context.dev, and Data & Evidence paths only.
+
+There is no approved `prod` profile. A demo provider failure remains visible and
+never silently switches to fixtures. Context.dev access-policy IDs are mandatory
+for the release validator and controlled-live gate.
+
+## Release gate
+
+List or run R2-D1-03 lanes:
+
+```bash
+python3 infrastructure/release/run_phase2_gate.py --list
+python3 infrastructure/release/run_phase2_gate.py \
+  --lane recorded --output /tmp/r2-d1-03-recorded.json
+```
+
+The recorded lane clears provider credentials and writes a redacted report. The
+durable lane uses explicitly disposable PostgreSQL/RabbitMQ resources. The live
+lane remains a separately authorized manual smoke; recorded fixtures cannot
+satisfy it. Full instructions are in `docs/phase2/R2-D1-03-RUNBOOK.md`.
+
+## VPS deployment
+
+Use `docs/phase2/VPS-DEPLOYMENT.md`. It covers Docker installation references,
+central secrets, one-command start, host Nginx/Let's Encrypt, firewalling,
+verification, backup, update, rollback, and credential-rotation constraints.

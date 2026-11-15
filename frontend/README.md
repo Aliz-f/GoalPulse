@@ -2,13 +2,31 @@
 
 Next.js 16 app for **R2-D2-04** (truthful goal results and notifications), **R2-D2-02** (real gateway client, demo cookie sign-in, fail-closed runtime), **D2-FE-01** (app shell + typed API client), **D2-FE-02** (conversational goal wizard + exact-revision confirmation), **D2-FE-03** (My Goals) and **D2-FE-04** (notifications + prepared purchase view, mock-only until ICP-02). Owned path: `frontend/`.
 
-## Run
+## Run with the complete platform
+
+The canonical integrated runtime is the root Docker Compose stack. It builds the
+Next.js standalone image with the public values from the centralized root
+`.env`, waits for Gateway, and publishes frontend only on loopback:
+
+```bash
+cd ..
+python3 infrastructure/release/validate_env.py --env-file .env
+docker compose -f infrastructure/docker-compose.yml --env-file .env \
+  up -d --build --wait --wait-timeout 300
+```
+
+On a VPS, host Nginx proxies HTTPS to `127.0.0.1:3000`; it is not a container.
+See `docs/phase2/VPS-DEPLOYMENT.md`. Changing any `NEXT_PUBLIC_*` value or
+`GOALPULSE_PROFILE` requires rebuilding the frontend image. No secret is passed
+to the frontend build.
+
+## Direct frontend development
 
 Requires **Node 22** (`frontend/.nvmrc`, ADR-0003 MVP-02). Every npm script first runs `scripts/check-node.mjs`, which stops with install instructions on another major version; reinstall with `npm ci` after switching. `npm run e2e` starts its own `next dev` on :3100 with a separate build folder (`.next-e2e`), so it works while `npm run dev` is running.
 
 ```bash
 cd frontend
-npm install
+npm ci
 cp .env.example .env.local   # required: there is no default mode (see Modes)
 npm run dev            # http://localhost:3000
 npm test               # unit tests (node:test, no extra deps)

@@ -1,4 +1,4 @@
-name: goalpulse-local
+name: ${COMPOSE_PROJECT_NAME:-goalpulse}
 x-service-identity: &service-identity
   SERVICE_JWT_SECRET: ${SERVICE_JWT_SECRET:?Set SERVICE_JWT_SECRET}
   SERVICE_JWT_ISSUER: ${SERVICE_JWT_ISSUER:?Set SERVICE_JWT_ISSUER}
@@ -107,6 +107,11 @@ services:
       GI_DATABASE_URL: postgresql://goal_intelligence:${GOAL_INTELLIGENCE_DB_PASSWORD:?Set GOAL_INTELLIGENCE_DB_PASSWORD}@postgres:5432/goal_intelligence
       GI_LLM_PROVIDER: ${GI_LLM_PROVIDER:-fixture}
       GI_LLM_MODEL: ${GI_LLM_MODEL:-}
+      GI_LLM_EFFORT: ${GI_LLM_EFFORT:-}
+      GI_LLM_TIMEOUT_S: ${GI_LLM_TIMEOUT_S:-20}
+      GI_LLM_MAX_ATTEMPTS: ${GI_LLM_MAX_ATTEMPTS:-3}
+      GI_MAX_MESSAGE_CHARS: ${GI_MAX_MESSAGE_CHARS:-2000}
+      GI_MAX_USER_TURNS: ${GI_MAX_USER_TURNS:-20}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       SERVICE_JWT_SECRET: ${SERVICE_JWT_SECRET:?Set SERVICE_JWT_SECRET}
       SERVICE_JWT_ISSUER: ${SERVICE_JWT_ISSUER:?Set SERVICE_JWT_ISSUER}
@@ -151,6 +156,7 @@ services:
     environment:
       GOAL_MANAGEMENT_DATABASE_URL: postgresql://goal_management:${GOAL_MANAGEMENT_DB_PASSWORD:?Set GOAL_MANAGEMENT_DB_PASSWORD}@postgres:5432/goal_management
       GOAL_INTELLIGENCE_URL: http://goal-intelligence:8000
+      GOAL_MANAGEMENT_INTERNAL_TIMEOUT_SECONDS: ${GOAL_MANAGEMENT_INTERNAL_TIMEOUT_SECONDS:-5}
       GATEWAY_DEV_JWT_SECRET: ${GATEWAY_DEV_JWT_SECRET:?Set GATEWAY_DEV_JWT_SECRET}
       GATEWAY_JWT_ISSUER: ${GATEWAY_JWT_ISSUER:?Set GATEWAY_JWT_ISSUER}
       GATEWAY_JWT_AUDIENCE: ${GATEWAY_JWT_AUDIENCE:?Set GATEWAY_JWT_AUDIENCE}
@@ -195,9 +201,12 @@ services:
       DISCOVERY_SERVICE_ID: 00000000-0000-4000-8000-000000000003
       CONTEXT_DEV_API_KEY: ${CONTEXT_DEV_API_KEY:?Set CONTEXT_DEV_API_KEY}
       CONTEXT_DEV_ACCESS_POLICY_IDS: ${CONTEXT_DEV_ACCESS_POLICY_IDS:-}
+      DM_PROVIDER: ${DM_PROVIDER:-context_dev}
       DM_MAX_SOURCES_PER_GOAL: ${DM_MAX_SOURCES_PER_GOAL:-3}
+      DM_INITIAL_MAX_OPERATIONS_PER_DAY: ${DM_INITIAL_MAX_OPERATIONS_PER_DAY:-100}
       DM_MAX_ACTIVE_GOALS_PER_USER: ${DM_MAX_ACTIVE_GOALS_PER_USER:-2}
       DM_MAX_REQUESTS_PER_USER_PER_DAY: ${DM_MAX_REQUESTS_PER_USER_PER_DAY:-100}
+      DM_OPERATOR_IDS: ${DM_OPERATOR_IDS:-}
       <<: *service-identity
     depends_on:
       postgres: {condition: service_healthy}
@@ -233,6 +242,7 @@ services:
     command: ["python", "-m", "goalpulse_evidence", "api", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       GOALPULSE_PROFILE: ${GOALPULSE_PROFILE:-dev}
+      DE_EVIDENCE_MODE: ${DE_EVIDENCE_MODE:-real}
       DATA_EVIDENCE_DATABASE_URL: postgresql://data_evidence:${DATA_EVIDENCE_DB_PASSWORD:?Set DATA_EVIDENCE_DB_PASSWORD}@postgres:5432/data_evidence
       DE_MERCHANT_HOSTS: ${DE_MERCHANT_HOSTS:?Set DE_MERCHANT_HOSTS}
       <<: *service-identity
@@ -250,6 +260,7 @@ services:
     command: ["python", "-m", "goalpulse_evidence", "publisher"]
     environment:
       GOALPULSE_PROFILE: ${GOALPULSE_PROFILE:-dev}
+      DE_EVIDENCE_MODE: ${DE_EVIDENCE_MODE:-real}
       DATA_EVIDENCE_DATABASE_URL: postgresql://data_evidence:${DATA_EVIDENCE_DB_PASSWORD:?Set DATA_EVIDENCE_DB_PASSWORD}@postgres:5432/data_evidence
       DE_MERCHANT_HOSTS: ${DE_MERCHANT_HOSTS:?Set DE_MERCHANT_HOSTS}
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/%2F
@@ -450,6 +461,40 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+    networks: [app]
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_GOALPULSE_PROFILE: ${GOALPULSE_PROFILE:?Set GOALPULSE_PROFILE}
+        NEXT_PUBLIC_API_MODE: ${NEXT_PUBLIC_API_MODE:?Set NEXT_PUBLIC_API_MODE}
+        NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-}
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/').then(r => {
+            if (!r.ok) process.exit(1)
+          }).catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
     networks: [app]
 volumes:
   postgres_data:

@@ -76,6 +76,12 @@ def build(s, connect, broker, queue, dlq, **kwargs):
         dependencies_ready=lambda: True, clock=s.clock, transport=RecordedTransport(s), **kwargs)
 
 
+def outbox_state(connection):
+    return connection.execute(
+        "SELECT event_json->>'event_type',status,attempts,last_error FROM outbox ORDER BY event_id"
+    ).fetchall()
+
+
 def test_recorded_worker_sql_persistence_and_duplicate_restart(postgres, setup):
     s = setup
     broker = Mock()
@@ -91,7 +97,8 @@ def test_recorded_worker_sql_persistence_and_duplicate_restart(postgres, setup):
     with postgres() as connection:
         row = connection.execute('SELECT payload FROM evaluations').fetchone()[0]
         assert connection.execute('SELECT count(*) FROM inbox').fetchone()[0] == 1
-        assert connection.execute("SELECT count(*) FROM outbox WHERE status='published'").fetchone()[0] == 2
+        state = outbox_state(connection)
+        assert [item[1] for item in state] == ['published', 'published'], state
     restarted = build(s, postgres, broker, 'fixture-queue', 'fixture-dlq', properties_factory=Mock())
     restarted.worker.run_once()
     assert restarted.reader.get(row['evaluation_id']) == row
@@ -127,7 +134,8 @@ def test_real_rabbit_manual_ack_replay_and_confirmed_sql_outbox(postgres, setup)
         runtime.worker.run_once()
         with postgres() as connection:
             assert connection.execute('SELECT count(*) FROM evaluations').fetchone()[0] == 1
-            assert connection.execute("SELECT count(*) FROM outbox WHERE status='published'").fetchone()[0] == 2
+            state = outbox_state(connection)
+            assert [item[1] for item in state] == ['published', 'published'], state
         assert channel.queue_declare(queue=queue, passive=True).method.message_count == 0
         assert channel.queue_declare(queue=output, passive=True).method.message_count == 2
         assert channel.queue_declare(queue=dlq, passive=True).method.message_count == 0
