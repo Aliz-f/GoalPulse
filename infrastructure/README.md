@@ -27,7 +27,7 @@ docker compose -f infrastructure/docker-compose.yml --env-file .env config --qui
 
 By default, the manager asks one by one only for required empty values, invalid
 values, and placeholders. Enter `s` to skip a variable and resume it on a later
-run. Enter `g` to generate application secrets, UUIDs, or password hashes when
+run. Enter `g` to generate application secrets or UUIDs when
 offered. Use `--all` to review everything or repeat `--only NAME` to manage
 selected variables. `--generate-random` fills every invalid or placeholder
 database/broker/JWT/session secret and demo UUID; it never fabricates external
@@ -41,9 +41,10 @@ disabled. A real `pol_...` provider policy is required by default. ADR-0006's
 explicit controlled-demo exception may omit it, but resulting evidence remains
 unverified.
 
-The frontend receives only three public build arguments: profile, API mode, and
-public Gateway origin. API keys, DB/broker passwords, session secrets, and JWT
-secrets are not passed into its image.
+The frontend receives only public build arguments: profile, API mode, public
+Gateway origin, and the two intentionally public isolated-demo login pairs. API
+keys, DB/broker passwords, session secrets, and JWT secrets are not passed into
+its image.
 
 ## Start the whole stack
 

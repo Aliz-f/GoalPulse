@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
+import hmac
 import os
 from pathlib import Path
 import re
@@ -35,6 +38,21 @@ PORT_NAMES = (
     "RABBITMQ_HOST_PORT",
     "RABBITMQ_MANAGEMENT_HOST_PORT",
 )
+PASSWORD_HASH_PATTERN = re.compile(
+    r"pbkdf2_sha256\$(\d+)\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+"
+)
+
+
+def password_matches_hash(password: str, encoded: str) -> bool:
+    if not PASSWORD_HASH_PATTERN.fullmatch(encoded):
+        return False
+    try:
+        _algorithm, iterations, salt, expected = encoded.split("$", 3)
+        decode = lambda value: base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), decode(salt), int(iterations))
+        return hmac.compare_digest(actual, decode(expected))
+    except (ValueError, TypeError):
+        return False
 
 
 def parse_env(path: Path) -> tuple[dict[str, str], list[str]]:
@@ -213,6 +231,20 @@ def validate(values: dict[str, str], compose_path: Path) -> list[str]:
             hash_match = re.fullmatch(r"pbkdf2_sha256\$(\d+)\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+", password_hash)
             if not hash_match or int(hash_match.group(1)) < 210_000:
                 errors.append(f"demo requires a generated pbkdf2_sha256 hash in {prefix}_PASSWORD_HASH")
+        public_passwords = {
+            "A": values.get("DEMO_USER_A_PUBLIC_PASSWORD", ""),
+            "B": values.get("DEMO_USER_B_PUBLIC_PASSWORD", ""),
+        }
+        for slot, public_password in public_passwords.items():
+            if not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", public_password):
+                errors.append(f"demo requires an 8-128 character URL-safe DEMO_USER_{slot}_PUBLIC_PASSWORD")
+            elif not password_matches_hash(
+                public_password,
+                values.get(f"GATEWAY_DEMO_USER_{slot}_PASSWORD_HASH", ""),
+            ):
+                errors.append(f"GATEWAY_DEMO_USER_{slot}_PASSWORD_HASH must match DEMO_USER_{slot}_PUBLIC_PASSWORD")
+        if public_passwords["A"] == public_passwords["B"]:
+            errors.append("demo public passwords must be distinct")
         if values.get("GATEWAY_DEMO_USER_A_ID") == values.get("GATEWAY_DEMO_USER_B_ID"):
             errors.append("demo user IDs must be distinct")
         if values.get("GATEWAY_DEMO_USER_A_USERNAME") == values.get("GATEWAY_DEMO_USER_B_USERNAME"):

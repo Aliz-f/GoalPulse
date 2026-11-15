@@ -60,7 +60,15 @@ describe("browser credentials (ADR-0003 MVP-06)", () => {
   });
 
   it("reads only public, non-secret build settings", () => {
-    const allowed = new Set(["NEXT_PUBLIC_GOALPULSE_PROFILE", "NEXT_PUBLIC_API_MODE", "NEXT_PUBLIC_GATEWAY_URL"]);
+    const allowed = new Set([
+      "NEXT_PUBLIC_GOALPULSE_PROFILE",
+      "NEXT_PUBLIC_API_MODE",
+      "NEXT_PUBLIC_GATEWAY_URL",
+      "NEXT_PUBLIC_DEMO_USER_A_USERNAME",
+      "NEXT_PUBLIC_DEMO_USER_A_PASSWORD",
+      "NEXT_PUBLIC_DEMO_USER_B_USERNAME",
+      "NEXT_PUBLIC_DEMO_USER_B_PASSWORD",
+    ]);
     for (const file of files(SRC)) {
       for (const match of code(readFileSync(file, "utf8")).matchAll(/process\.env\.([A-Z0-9_]+)/g)) {
         assert.ok(allowed.has(match[1]), `${file} reads ${match[1]}`);

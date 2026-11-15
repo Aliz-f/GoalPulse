@@ -16,16 +16,33 @@ const BOB: DemoUser = { ...ALICE, user_id: "22222222-2222-4222-8222-222222222222
 
 describe("runtime selection fails closed", () => {
   const gw = { NEXT_PUBLIC_API_MODE: "gateway", NEXT_PUBLIC_GATEWAY_URL: "http://localhost:8000/" };
+  const demoCredentials = {
+    NEXT_PUBLIC_DEMO_USER_A_USERNAME: "demo-a",
+    NEXT_PUBLIC_DEMO_USER_A_PASSWORD: "demo-a-pass",
+    NEXT_PUBLIC_DEMO_USER_B_USERNAME: "demo-b",
+    NEXT_PUBLIC_DEMO_USER_B_PASSWORD: "demo-b-pass",
+  };
 
   it("accepts the demo profile only with the real gateway", () => {
-    assert.deepEqual(resolveRuntime({ NEXT_PUBLIC_GOALPULSE_PROFILE: "demo", ...gw }), {
+    assert.deepEqual(resolveRuntime({ NEXT_PUBLIC_GOALPULSE_PROFILE: "demo", ...gw, ...demoCredentials }), {
       profile: "demo",
       mode: "gateway",
       gatewayUrl: "http://localhost:8000",
+      demoCredentials: [
+        { label: "Demo account A", username: "demo-a", password: "demo-a-pass" },
+        { label: "Demo account B", username: "demo-b", password: "demo-b-pass" },
+      ],
     });
     assert.throws(
       () => resolveRuntime({ NEXT_PUBLIC_GOALPULSE_PROFILE: "demo", NEXT_PUBLIC_API_MODE: "mock" }),
       /profile 'demo' requires NEXT_PUBLIC_API_MODE=gateway/,
+    );
+  });
+
+  it("refuses a demo build that cannot show both prepared logins", () => {
+    assert.throws(
+      () => resolveRuntime({ NEXT_PUBLIC_GOALPULSE_PROFILE: "demo", ...gw }),
+      /requires both public demo usernames and passwords/,
     );
   });
 
@@ -34,6 +51,7 @@ describe("runtime selection fails closed", () => {
       const rt = resolveRuntime({ NEXT_PUBLIC_GOALPULSE_PROFILE: profile, NEXT_PUBLIC_API_MODE: "mock" });
       assert.equal(rt.mode, "mock");
       assert.equal(rt.gatewayUrl, null);
+      assert.deepEqual(rt.demoCredentials, []);
     }
   });
 

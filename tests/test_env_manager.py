@@ -8,11 +8,14 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE = ROOT / "infrastructure" / "release"
+GATEWAY = ROOT / "infrastructure" / "gateway"
 ENV_EXAMPLE = ROOT / ".env.example"
 MANAGER_SCRIPT = RELEASE / "manage_env.py"
 
 sys.path.insert(0, str(RELEASE))
+sys.path.insert(0, str(GATEWAY))
 import manage_env  # noqa: E402
+from goalpulse_gateway.sessions import verify_demo_password  # noqa: E402
 
 
 def test_every_template_variable_has_adjacent_description_and_options():
@@ -62,24 +65,54 @@ def test_policy_can_be_cleared_only_with_explicit_without_policy_override():
     assert manage_env.invalid_reason("CONTEXT_DEV_ACCESS_POLICY_IDS", "", values) is None
 
 
-def test_manager_generates_valid_secrets_uuid_and_password_hash():
+def test_manager_generates_valid_secrets_uuid_and_derives_password_hash():
     secret = manage_env._generated("POSTGRES_PASSWORD", lambda _prompt: "unused")
     assert manage_env.invalid_reason("POSTGRES_PASSWORD", secret, {"POSTGRES_PASSWORD": secret}) is None
 
     user_id = manage_env._generated("GATEWAY_DEMO_USER_A_ID", lambda _prompt: "unused")
     assert manage_env.invalid_reason("GATEWAY_DEMO_USER_A_ID", user_id, {"GATEWAY_DEMO_USER_A_ID": user_id}) is None
 
-    answers = iter(("a long unique demo password", "a long unique demo password"))
-    password_hash = manage_env._generated(
-        "GATEWAY_DEMO_USER_A_PASSWORD_HASH",
-        lambda _prompt: next(answers),
-    )
+    public_password = "public-demo-password-a"
+    password_hash = manage_env.password_hash(public_password)
     assert password_hash.startswith("pbkdf2_sha256$310000$")
+    assert manage_env.password_matches_hash(public_password, password_hash)
     assert manage_env.invalid_reason(
         "GATEWAY_DEMO_USER_A_PASSWORD_HASH",
         password_hash,
-        {"GATEWAY_DEMO_USER_A_PASSWORD_HASH": password_hash},
+        {
+            "GATEWAY_DEMO_USER_A_PASSWORD_HASH": password_hash,
+            "DEMO_USER_A_PUBLIC_PASSWORD": public_password,
+        },
     ) is None
+
+
+def test_manager_synchronizes_public_demo_passwords_with_gateway_hashes():
+    values = {
+        "DEMO_USER_A_PUBLIC_PASSWORD": "public-demo-password-a",
+        "DEMO_USER_B_PUBLIC_PASSWORD": "public-demo-password-b",
+        "GATEWAY_DEMO_USER_A_PASSWORD_HASH": "CHANGE_ME_PBKDF2_HASH",
+        "GATEWAY_DEMO_USER_B_PASSWORD_HASH": "CHANGE_ME_PBKDF2_HASH",
+    }
+
+    changed = manage_env.sync_public_demo_hashes(values)
+
+    assert set(changed) == {
+        "GATEWAY_DEMO_USER_A_PASSWORD_HASH",
+        "GATEWAY_DEMO_USER_B_PASSWORD_HASH",
+    }
+    assert manage_env.password_matches_hash(
+        values["DEMO_USER_A_PUBLIC_PASSWORD"], values["GATEWAY_DEMO_USER_A_PASSWORD_HASH"]
+    )
+    assert manage_env.password_matches_hash(
+        values["DEMO_USER_B_PUBLIC_PASSWORD"], values["GATEWAY_DEMO_USER_B_PASSWORD_HASH"]
+    )
+    assert verify_demo_password(
+        values["DEMO_USER_A_PUBLIC_PASSWORD"], values["GATEWAY_DEMO_USER_A_PASSWORD_HASH"]
+    )
+    assert verify_demo_password(
+        values["DEMO_USER_B_PUBLIC_PASSWORD"], values["GATEWAY_DEMO_USER_B_PASSWORD_HASH"]
+    )
+    assert manage_env.sync_public_demo_hashes(values) == []
 
 
 def test_manager_quotes_password_hash_dollars_for_compose_and_round_trips(tmp_path):
@@ -146,7 +179,7 @@ def test_bulk_generator_covers_every_random_env_value_without_overwriting_valid_
     generated = manage_env.generate_random_values(fields, values, set())
 
     assert manage_env.RANDOM_GENERATABLE_NAMES == expected_random_names
-    assert manage_env.GENERATABLE_NAMES == expected_random_names | manage_env.PASSWORD_HASH_NAMES
+    assert manage_env.GENERATABLE_NAMES == expected_random_names
     assert set(generated) == expected_random_names - {"POSTGRES_PASSWORD"}
     assert values["POSTGRES_PASSWORD"] == configured_secret
     for name in generated:

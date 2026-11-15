@@ -14,7 +14,7 @@ from goal_intelligence.config import ConfigError, Settings, build_extractor, run
 from goal_intelligence.llm.anthropic import AnthropicExtractor
 from goal_intelligence.llm.base import ExtractorError, ExtractorMalformedOutput, ExtractorTimeout, ResilientExtractor
 from goal_intelligence.llm.fixture import FixtureExtractor
-from goal_intelligence.service import RETRY_NOTICE
+from goal_intelligence.service import RETRY_NOTICE, SUMMARY_APPROVAL_MESSAGE
 from test_gi_compiler import PRODUCT_FLOW
 
 KEY = "sk-ant-test-0123456789-never-print-me"
@@ -144,6 +144,33 @@ def test_provider_failure_withdraws_readiness_instead_of_dropping_a_change(make_
     assert after.missing_fields == ["summary_approval"]
     assert after.next_question.startswith(RETRY_NOTICE)
     assert after.candidate_goal == ready.candidate_goal  # nothing from the failed call applied
+
+
+@pytest.mark.parametrize("reply", ["deal", "YES!", "Looks good to me.", SUMMARY_APPROVAL_MESSAGE])
+def test_explicit_summary_consent_is_deterministic_during_provider_outage(make_service, reply):
+    draft = converse(make_service(), USER_A, PRODUCT_FLOW[:-1])
+    assert draft.missing_fields == ["summary_approval"]
+
+    unavailable = make_service(timing_out())
+    ready = unavailable.post_message(USER_A, draft.session_id, reply, draft.revision)
+
+    assert ready.ready_for_confirmation
+    assert ready.state == "ready_for_confirmation"
+    assert unavailable.extractor.attempts == []
+
+
+def test_summary_reply_with_a_change_still_requires_extraction(make_service):
+    draft = converse(make_service(), USER_A, PRODUCT_FLOW[:-1])
+    after = make_service(timing_out()).post_message(
+        USER_A,
+        draft.session_id,
+        "yes, but change the budget to 500 euros",
+        draft.revision,
+    )
+
+    assert not after.ready_for_confirmation
+    assert after.missing_fields == ["summary_approval"]
+    assert after.next_question.startswith(RETRY_NOTICE)
 
 
 def test_provider_failure_logs_no_goal_text_or_key(make_service, caplog):

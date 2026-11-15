@@ -15,8 +15,9 @@
 | `GATEWAY_DEMO_SESSION_SECRET` | empty in committed example | Required server-side secret in demo; no default and never exposed to browser code |
 | `GATEWAY_DEMO_SESSION_TTL_SECONDS` | `1800` | Short-lived session lifetime; D1-01 validates an approved bound |
 | `GATEWAY_DEMO_USER_A_ID`, `GATEWAY_DEMO_USER_B_ID` | UUID, supplied privately | Exactly two pre-provisioned demo owner identities |
-| `GATEWAY_DEMO_USER_A_USERNAME`, `GATEWAY_DEMO_USER_B_USERNAME` | supplied privately | Server-side login identifiers; no browser hard-coding |
-| `GATEWAY_DEMO_USER_A_PASSWORD_HASH`, `GATEWAY_DEMO_USER_B_PASSWORD_HASH` | empty in committed example | Password hashes only; plaintext passphrases are never committed or logged |
+| `GATEWAY_DEMO_USER_A_USERNAME`, `GATEWAY_DEMO_USER_B_USERNAME` | `developer1`, `reviewer` | Pre-provisioned isolated-demo identifiers, compiled into the demo frontend under ADR-0007 |
+| `DEMO_USER_A_PUBLIC_PASSWORD`, `DEMO_USER_B_PUBLIC_PASSWORD` | public demo-only values | Intentionally displayed by the demo frontend; never reuse a private or production password |
+| `GATEWAY_DEMO_USER_A_PASSWORD_HASH`, `GATEWAY_DEMO_USER_B_PASSWORD_HASH` | manager-derived | Salted hashes derived from the public demo passwords; only these reach Gateway |
 | `GATEWAY_DEMO_USER_A_DISPLAY_NAME`, `GATEWAY_DEMO_USER_B_DISPLAY_NAME` | supplied privately | Non-secret labels returned by the demo-session response |
 | `DM_SCAN_MIN_MINUTES` | `30` | Demo scheduling floor; user approves any adjustment before activation |
 | `DM_MAX_ACTIVE_GOALS_PER_USER` | `2` | Spending guard |
@@ -26,9 +27,14 @@
 | `DE_ALERT_RECHECK_MAX_AGE_MINUTES` | `10` | Latest proof before verified alert |
 | `NOTIFY_GOAL_RATE_LIMIT_MINUTES` | `60` | No alert spam |
 
-Frontend demo build: `NEXT_PUBLIC_API_MODE=gateway`; reject `mock` and undefined mode in `demo`. `GI_LLM_PROVIDER=anthropic`, valid non-empty `GI_LLM_MODEL` and `ANTHROPIC_API_KEY`. `CONTEXT_DEV_API_KEY` must be set for DM worker. Credential values never in build logs. Keys only in server-side env/secrets; never `NEXT_PUBLIC_*` secrets.
+Frontend demo build: `NEXT_PUBLIC_API_MODE=gateway`; reject `mock` and undefined mode in `demo`. `GI_LLM_PROVIDER=anthropic`, valid non-empty `GI_LLM_MODEL` and `ANTHROPIC_API_KEY`. `CONTEXT_DEV_API_KEY` must be set for DM worker. Private credential values never enter build logs. Only the ADR-0007 public demo login pairs are compiled into the browser; provider and platform secrets remain server-side.
 
-The committed `.env.example` intentionally leaves all new secrets, user IDs, usernames and password hashes empty. `dev` may start with explicit fixtures; `demo` must reject empty required values. There is no `DEMO_AUTH_ENABLED` switch: the accepted gate is `GOALPULSE_PROFILE=demo`, and the demo-session routes return `503` in every other profile.
+The committed `.env.example` leaves private secrets, user IDs, and derived
+password hashes as placeholders. Demo usernames and public demo-only passwords
+have non-secret defaults. `dev` may start with explicit fixtures; `demo` must
+reject incomplete required values. There is no `DEMO_AUTH_ENABLED` switch: the
+accepted gate is `GOALPULSE_PROFILE=demo`, and the demo-session routes return
+`503` in every other profile.
 
 ## Boot sequence for Developer 1 to implement
 

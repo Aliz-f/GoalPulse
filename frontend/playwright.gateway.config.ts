@@ -45,6 +45,10 @@ export default defineConfig({
         NEXT_PUBLIC_GOALPULSE_PROFILE: "demo",
         NEXT_PUBLIC_API_MODE: "gateway",
         NEXT_PUBLIC_GATEWAY_URL: GATEWAY,
+        NEXT_PUBLIC_DEMO_USER_A_USERNAME: process.env.GOALPULSE_E2E_USER_A ?? "demo-a",
+        NEXT_PUBLIC_DEMO_USER_A_PASSWORD: process.env.GOALPULSE_E2E_PASS_A ?? "demo-a-pass",
+        NEXT_PUBLIC_DEMO_USER_B_USERNAME: process.env.GOALPULSE_E2E_USER_B ?? "demo-b",
+        NEXT_PUBLIC_DEMO_USER_B_PASSWORD: process.env.GOALPULSE_E2E_PASS_B ?? "demo-b-pass",
         // Own dist dir: may run while `npm run dev` or the mock lane holds theirs.
         NEXT_DIST_DIR: ".next-e2e-gw",
       },

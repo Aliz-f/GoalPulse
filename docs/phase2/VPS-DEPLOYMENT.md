@@ -154,7 +154,8 @@ Prompt controls are:
 - press Enter without a value to retain the current value;
 - enter `s` to skip the variable and finish it on a later run;
 - enter `-` to clear the value;
-- enter `g` when offered to generate a secret, UUID, or salted password hash.
+- enter `g` when offered to generate a secret or UUID; public demo password
+  hashes are derived automatically.
 
 The manager writes atomically and forces `.env` to mode `0600`. It also
 preserves legacy/custom variables already present in `.env`, placing them in a
@@ -220,6 +221,8 @@ RABBITMQ_MANAGEMENT_HOST_PORT=15672
 NEXT_PUBLIC_API_MODE=gateway
 NEXT_PUBLIC_GATEWAY_URL=https://goalpulse.example.com
 GATEWAY_DEMO_ALLOWED_ORIGIN=https://goalpulse.example.com
+DEMO_USER_A_PUBLIC_PASSWORD=<PUBLIC_DEMO_ONLY_PASSWORD_A>
+DEMO_USER_B_PUBLIC_PASSWORD=<PUBLIC_DEMO_ONLY_PASSWORD_B>
 ```
 
 Replace the example hostname everywhere. The two HTTPS origins must match
@@ -240,7 +243,7 @@ first run. The manager generates independent values without displaying them.
 |---|---|
 | `POSTGRES_PASSWORD`, all `*_DB_PASSWORD` values, `RABBITMQ_DEFAULT_PASS`, JWT secrets, and the session secret | Enter `g`, or use `--generate-random`. |
 | Demo user UUIDs | Enter `g`, or use `--generate-random`; the manager enforces distinct UUID v4 values. |
-| Demo user password hashes | Enter `g`, then type and confirm the intended login password privately. Only the salted hash is stored. |
+| Public demo passwords | Set distinct `DEMO_USER_A_PUBLIC_PASSWORD` and `DEMO_USER_B_PUBLIC_PASSWORD` values. They are intentionally displayed in the isolated demo UI; never reuse private credentials. The manager derives the Gateway hashes. |
 | Anthropic and Context.dev API keys | Paste provider-issued credentials at the hidden prompt. The manager cannot generate them. |
 | Context.dev policy IDs | Enter one or more provider-issued `pol_...` IDs. Never invent an ID. If unavailable, use only the explicit ADR-0006 procedure below. |
 | Public origins, merchant hosts, and model ID | Enter deployment/account-specific approved values. |
@@ -270,19 +273,11 @@ manual equivalent is:
 python3 -c 'import uuid; print(uuid.uuid4())'
 ```
 
-For each demo-user password hash, enter `g` and provide the password twice. The
-manager reads plaintext without echo and stores only the generated hash. The
-manual equivalent is:
-
-```bash
-PYTHONPATH=infrastructure/gateway python3 -c \
-  'from getpass import getpass; from goalpulse_gateway.sessions import hash_demo_password; print(hash_demo_password(getpass()))'
-```
-
-Put only the resulting `pbkdf2_sha256$...` values in
-`GATEWAY_DEMO_USER_A_PASSWORD_HASH` and
-`GATEWAY_DEMO_USER_B_PASSWORD_HASH`. Use long, unique passwords and transfer
-them to the two authorized users through an approved secret channel.
+Do not edit `GATEWAY_DEMO_USER_A_PASSWORD_HASH` or
+`GATEWAY_DEMO_USER_B_PASSWORD_HASH` manually. `manage_env.py` derives each
+salted hash from its corresponding public password without displaying the hash.
+After changing a public demo password, rebuild the frontend and restart Gateway
+so the displayed credential and accepted hash change together.
 
 ### 5.4 Providers and evidence
 

@@ -48,7 +48,7 @@ Three settings, all required (`.env.example`). There are **no defaults**: a miss
 
 ### Sign-in in gateway mode (ADR-0003 MVP-06)
 
-- The browser posts username + password once to `POST /v2/demo/sessions` (`contracts/openapi/gateway.phase2.extension.v1.yaml`). The gateway answers with the non-secret `DemoUser` and sets the **HttpOnly** `goalpulse_session` cookie. The password field is cleared after every attempt.
+- The sign-in page displays the two intentionally public isolated-demo login pairs and prefills account A. The browser posts the selected username + password once to `POST /v2/demo/sessions` (`contracts/openapi/gateway.phase2.extension.v1.yaml`). The gateway answers with the non-secret `DemoUser` and sets the **HttpOnly** `goalpulse_session` cookie. The password field is cleared after every attempt; the public account card remains selectable.
 - Every call uses `credentials: "include"`. For POST/PATCH, the client copies only the intentionally non-HttpOnly `goalpulse_csrf` cookie into `X-CSRF-Token`; it cannot read the HttpOnly identity cookie. The browser **never** holds, stores or sends an identity token, sends no `Authorization` header and never supplies an owner ID; nothing goes to `localStorage`/`sessionStorage`. On load (refresh or browser restart) the app asks `GET /v2/demo/session` who is signed in.
 - Pages are shown only to a signed-in user and remount when the account changes; cached drafts are dropped on sign-out or account switch. They are still rendered (hidden) before sign-in so Next 16 can prerender every segment for instant-navigation validation, and the API client sends nothing until the session is confirmed (`canSend` in `src/lib/api/http.ts`). Any `401` shows "Your session ended. Sign in again."
 - Sign-out posts `/v2/demo/sessions/logout`; if that fails the UI stays signed in rather than pretending.
@@ -59,17 +59,21 @@ Three settings, all required (`.env.example`). There are **no defaults**: a miss
 
 ### Checks for this
 
-- `tests/routes.test.ts`: only approved routes; no browser storage, `Authorization` header or `credentials: "omit"` in `src/`; only the three `NEXT_PUBLIC_*` settings are read.
+- `tests/routes.test.ts`: only approved routes; no browser storage, `Authorization` header or `credentials: "omit"` in `src/`; only the approved runtime and public-demo `NEXT_PUBLIC_*` settings are read.
 - `scripts/check-bundle.mjs` (CI, after each build): the browser bundle holds no keys, secret settings, JWTs, private service routes or the old token store.
 - CI also proves a demo + mock build and a build with no settings both **fail**.
-- `npm run e2e:gateway`: sign-in, wrong password, reload and browser-restart persistence, two-account isolation (incl. cross-owner 404), no credentials visible to page scripts. Until R2-D1-01 lands it runs against `e2e/gateway/stub-gateway.mjs`, a **contract test double** that proves the frontend half only. Against the real gateway: `GOALPULSE_E2E_GATEWAY_URL=http://127.0.0.1:8000 GOALPULSE_E2E_USER_A=… GOALPULSE_E2E_PASS_A=… GOALPULSE_E2E_USER_B=… GOALPULSE_E2E_PASS_B=… GOALPULSE_E2E_GOAL_A="<A's goal title>" GOALPULSE_E2E_GOAL_B="<B's goal title>" npm run e2e:gateway`.
+- `npm run e2e:gateway`: public credentials are displayed/prefilled, sign-in, wrong password, reload and browser-restart persistence, two-account isolation (incl. cross-owner 404), and no identity token visible to page scripts. Until R2-D1-01 lands it runs against `e2e/gateway/stub-gateway.mjs`, a **contract test double** that proves the frontend half only. Against the real gateway: `GOALPULSE_E2E_GATEWAY_URL=http://127.0.0.1:8000 GOALPULSE_E2E_USER_A=… GOALPULSE_E2E_PASS_A=… GOALPULSE_E2E_USER_B=… GOALPULSE_E2E_PASS_B=… GOALPULSE_E2E_GOAL_A="<A's goal title>" GOALPULSE_E2E_GOAL_B="<B's goal title>" npm run e2e:gateway`.
 
-Only `NEXT_PUBLIC_*` values reach the browser, and they hold no secrets. The frontend never calls Goal Intelligence, Goal Management, Anthropic or Context.dev directly, only the gateway.
+Only `NEXT_PUBLIC_*` values reach the browser. They contain runtime selectors,
+the public Gateway origin, and the intentionally public isolated-demo login
+pairs; they contain no private credentials or provider secrets. The frontend
+never calls Goal Intelligence, Goal Management, Anthropic or Context.dev
+directly, only the gateway.
 
 ## Screens
 
 - `/`: describe a goal (with examples) and start a session (`POST /v1/goal-sessions`).
-- `/sessions/[sessionId]`: conversation with one clarifying question at a time, "still needed" fields, and a live draft summary showing every candidate constraint. User facts are marked "From you"; values whose provenance is not present in frozen GoalDraft are neutrally marked "In this draft" instead of being mislabeled as defaults. When `ready_for_confirmation`, a **Review and confirm** panel confirms exactly the shown revision (`POST …/confirm` with `{expected_revision, approved: true}`).
+- `/sessions/[sessionId]`: conversation with one clarifying question at a time, "still needed" fields, and a live draft summary showing every candidate constraint. User facts are marked "From you"; values whose provenance is not present in frozen GoalDraft are neutrally marked "In this draft" instead of being mislabeled as defaults. A complete summary has an explicit **Approve this summary** action; when `ready_for_confirmation`, a separate **Review and confirm** panel confirms exactly the shown revision (`POST …/confirm` with `{expected_revision, approved: true}`).
 - `/goals`: your goals as cards (filter by lifecycle) with the frozen `GoalSummary` status and how long ago it was checked. "Not enough evidence" stays distinct from success; "Verified offer found" says nothing was bought. No progress percentages.
 - `/goals/[goalId]`: the approved GoalSpec, status, Pause / Resume / Mark as done / Cancel (`PATCH /v1/goals/{id}/lifecycle`; ending actions need a second click; re-read after every action), and **What the last check found** (R2-D2-04, below).
 - `/notifications` (R2-D2-04): your in-app notifications (`GET /v1/notifications`), newest first, unread count, mark as read (`PATCH …/read`, idempotent; a 404 reloads the feed). Every item is a verified offer, labelled "Verified offer · not ordered"; candidates and unknowns appear only on the goal page.

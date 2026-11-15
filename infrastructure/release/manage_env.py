@@ -56,9 +56,13 @@ PASSWORD_HASH_NAMES = {
     "GATEWAY_DEMO_USER_A_PASSWORD_HASH",
     "GATEWAY_DEMO_USER_B_PASSWORD_HASH",
 }
+PUBLIC_DEMO_PASSWORDS = {
+    "DEMO_USER_A_PUBLIC_PASSWORD": "GATEWAY_DEMO_USER_A_PASSWORD_HASH",
+    "DEMO_USER_B_PUBLIC_PASSWORD": "GATEWAY_DEMO_USER_B_PASSWORD_HASH",
+}
 UUID_NAMES = {"GATEWAY_DEMO_USER_A_ID", "GATEWAY_DEMO_USER_B_ID"}
 RANDOM_GENERATABLE_NAMES = SECRET_NAMES | UUID_NAMES
-GENERATABLE_NAMES = RANDOM_GENERATABLE_NAMES | PASSWORD_HASH_NAMES
+GENERATABLE_NAMES = RANDOM_GENERATABLE_NAMES
 PORT_NAMES = {
     "FRONTEND_HOST_PORT",
     "GATEWAY_HOST_PORT",
@@ -140,6 +144,8 @@ def _required(name: str, values: dict[str, str]) -> bool:
     profile = values.get("GOALPULSE_PROFILE", "demo")
     if name == "NEXT_PUBLIC_GATEWAY_URL":
         return values.get("NEXT_PUBLIC_API_MODE") == "gateway"
+    if name in PUBLIC_DEMO_PASSWORDS:
+        return profile == "demo"
     if name in {
         "GATEWAY_DEMO_SESSION_SECRET",
         "GATEWAY_DEMO_USER_A_ID",
@@ -227,6 +233,16 @@ def invalid_reason(name: str, value: str, values: dict[str, str]) -> str | None:
         match = PASSWORD_HASH_PATTERN.fullmatch(value)
         if not match or int(match.group(1)) < 210_000:
             return "must be a valid PBKDF2-SHA256 hash with at least 210000 iterations"
+        public_name = next(name_ for name_, hash_name in PUBLIC_DEMO_PASSWORDS.items() if hash_name == name)
+        public_password = values.get(public_name, "")
+        if public_password and not password_matches_hash(public_password, value):
+            return f"does not match {public_name}; rerun the manager to derive it"
+    if name in PUBLIC_DEMO_PASSWORDS:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", value):
+            return "must use 8-128 URL-safe characters"
+        other = "DEMO_USER_B_PUBLIC_PASSWORD" if name.endswith("_A_PUBLIC_PASSWORD") else "DEMO_USER_A_PUBLIC_PASSWORD"
+        if values.get(other) == value:
+            return f"must be distinct from {other}"
     if name in INTEGER_RANGES:
         minimum, maximum = INTEGER_RANGES[name]
         if not _integer_in_range(value, minimum, maximum):
@@ -307,6 +323,35 @@ def password_hash(password: str) -> str:
     return f"pbkdf2_sha256${iterations}${_b64encode(salt)}${_b64encode(digest)}"
 
 
+def _b64decode(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def password_matches_hash(password: str, encoded: str) -> bool:
+    match = PASSWORD_HASH_PATTERN.fullmatch(encoded)
+    if not match:
+        return False
+    try:
+        _algorithm, iterations, salt, expected = encoded.split("$", 3)
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), _b64decode(salt), int(iterations))
+        return secrets.compare_digest(actual, _b64decode(expected))
+    except (ValueError, TypeError):
+        return False
+
+
+def sync_public_demo_hashes(values: dict[str, str]) -> list[str]:
+    """Derive Gateway-only hashes from the credentials intentionally shown in the UI."""
+    changed: list[str] = []
+    for public_name, hash_name in PUBLIC_DEMO_PASSWORDS.items():
+        public_password = values.get(public_name, "")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", public_password):
+            continue
+        if not password_matches_hash(public_password, values.get(hash_name, "")):
+            values[hash_name] = password_hash(public_password)
+            changed.append(hash_name)
+    return changed
+
+
 def _sensitive(name: str) -> bool:
     return name in SECRET_NAMES | API_KEY_NAMES | PASSWORD_HASH_NAMES
 
@@ -316,12 +361,6 @@ def _generated(name: str, getpass_fn: Callable[[str], str]) -> str:
         return secrets.token_urlsafe(48)
     if name in UUID_NAMES:
         return str(uuid4())
-    if name in PASSWORD_HASH_NAMES:
-        first = getpass_fn("  New demo password (hidden): ")
-        second = getpass_fn("  Confirm demo password (hidden): ")
-        if first != second:
-            raise ValueError("password confirmation did not match")
-        return password_hash(first)
     raise ValueError("automatic generation is not available")
 
 
@@ -494,10 +533,15 @@ def main() -> int:
     )
     if random_generated:
         print("GENERATED " + ", ".join(random_generated) + "; values were not displayed")
+    synced_hashes = sync_public_demo_hashes(values)
+    if synced_hashes:
+        print("SYNCED " + ", ".join(synced_hashes) + " from the public demo passwords; hash values were not displayed")
     prompted = 0
     skipped: list[str] = []
     try:
         for field in fields:
+            if field.name in PASSWORD_HASH_NAMES:
+                continue
             current = values.get(field.name, "")
             if field.name in random_generated and not args.all:
                 continue
@@ -519,6 +563,10 @@ def main() -> int:
     except ValueError as error:
         print(f"FAIL {error}; no changes were written")
         return 1
+
+    synced_after_prompt = sync_public_demo_hashes(values)
+    if synced_after_prompt:
+        print("SYNCED " + ", ".join(synced_after_prompt) + " from the public demo passwords; hash values were not displayed")
 
     atomic_write(args.env_file, render_template(lines, values, known_names))
     print(f"WROTE {args.env_file} with mode 0600; {prompted} variable(s) prompted")

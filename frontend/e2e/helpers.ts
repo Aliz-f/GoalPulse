@@ -30,8 +30,13 @@ export async function answerUntilReady(page: Page) {
   for (let turn = 0; turn < 10; turn++) {
     if (await confirmButton(page).isVisible()) return;
     const before = await revisionBadge(page).textContent();
-    await page.getByRole("button", { name: /^Scripted reply:/ }).click();
-    await page.getByRole("button", { name: "Send", exact: true }).click();
+    const approve = page.getByRole("button", { name: "Approve this summary", exact: true });
+    if (await approve.isVisible()) {
+      await approve.click();
+    } else {
+      await page.getByRole("button", { name: /^Scripted reply:/ }).click();
+      await page.getByRole("button", { name: "Send", exact: true }).click();
+    }
     await expect(revisionBadge(page)).not.toHaveText(before ?? "");
   }
   throw new Error("draft never became ready for confirmation");

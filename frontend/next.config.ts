@@ -13,6 +13,17 @@ function checkRuntime(env: NodeJS.ProcessEnv): void {
   if (!["test", "dev", "demo"].includes(profile)) problems.push("NEXT_PUBLIC_GOALPULSE_PROFILE must be test, dev or demo");
   if (!["mock", "gateway"].includes(mode)) problems.push("NEXT_PUBLIC_API_MODE must be mock or gateway");
   if (profile === "demo" && mode !== "gateway") problems.push("profile 'demo' requires NEXT_PUBLIC_API_MODE=gateway; the mock is refused");
+  if (
+    profile === "demo" &&
+    [
+      "NEXT_PUBLIC_DEMO_USER_A_USERNAME",
+      "NEXT_PUBLIC_DEMO_USER_A_PASSWORD",
+      "NEXT_PUBLIC_DEMO_USER_B_USERNAME",
+      "NEXT_PUBLIC_DEMO_USER_B_PASSWORD",
+    ].some((name) => !env[name]?.trim())
+  ) {
+    problems.push("demo requires both public demo usernames and passwords");
+  }
   if (mode === "gateway") {
     try {
       const url = new URL(rawUrl);
