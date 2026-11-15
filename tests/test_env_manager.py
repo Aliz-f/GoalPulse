@@ -70,6 +70,45 @@ def test_manager_generates_valid_secrets_uuid_and_password_hash():
     ) is None
 
 
+def test_manager_quotes_password_hash_dollars_for_compose_and_round_trips(tmp_path):
+    lines, fields = manage_env.parse_template(ENV_EXAMPLE)
+    values = {field.name: field.default for field in fields}
+    password_hash = manage_env.password_hash("unique demo password")
+    values["GATEWAY_DEMO_USER_A_PASSWORD_HASH"] = password_hash
+    env_file = tmp_path / ".env"
+
+    env_file.write_text(
+        manage_env.render_template(lines, values, {field.name for field in fields}),
+        encoding="utf-8",
+    )
+    rendered_line = next(
+        line
+        for line in env_file.read_text(encoding="utf-8").splitlines()
+        if line.startswith("GATEWAY_DEMO_USER_A_PASSWORD_HASH=")
+    )
+    parsed, parse_errors = manage_env.parse_env(env_file)
+
+    assert rendered_line == f"GATEWAY_DEMO_USER_A_PASSWORD_HASH='{password_hash}'"
+    assert not parse_errors
+    assert parsed["GATEWAY_DEMO_USER_A_PASSWORD_HASH"] == password_hash
+    assert manage_env.compose_env_file_errors(env_file) == []
+
+
+def test_validator_rejects_unquoted_dollar_values_without_displaying_them(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "GATEWAY_DEMO_USER_A_PASSWORD_HASH=pbkdf2_sha256$310000$salt$digest\n",
+        encoding="utf-8",
+    )
+
+    errors = manage_env.compose_env_file_errors(env_file)
+
+    assert len(errors) == 1
+    assert "GATEWAY_DEMO_USER_A_PASSWORD_HASH" in errors[0]
+    assert "salt" not in errors[0]
+    assert "digest" not in errors[0]
+
+
 def test_bulk_generator_covers_every_random_env_value_without_overwriting_valid_values():
     _lines, fields = manage_env.parse_template(ENV_EXAMPLE)
     values = {field.name: field.default for field in fields}

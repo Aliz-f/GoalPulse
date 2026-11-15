@@ -327,6 +327,19 @@ The expected result is no output and exit status 1 from `grep`. Do not use
 `docker compose config` without care in shared logs because its expanded output
 can include secrets; `--quiet` performs validation without rendering it.
 
+If Compose warns that random-looking variables are unset, an older `.env` has
+unquoted `$` separators in a PBKDF2 demo password hash. Do not export or replace
+those warning names. Update to the current release and run the manager once:
+
+```bash
+python3 infrastructure/release/manage_env.py
+python3 infrastructure/release/manage_env.py --check
+docker compose -f infrastructure/docker-compose.yml --env-file .env config --quiet
+```
+
+The manager preserves the hash value while single-quoting it for Compose. The
+quiet Compose command must then produce no interpolation warnings.
+
 ## 6. Run repository release checks
 
 Prefer running the full checks in CI for the exact release commit. If the VPS is
