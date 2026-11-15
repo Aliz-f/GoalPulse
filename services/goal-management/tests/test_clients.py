@@ -83,3 +83,29 @@ def test_mark_confirmed_maps_conflict_and_unavailable():
         asyncio.run(invoke(409))
     with pytest.raises(CandidateUnavailable):
         asyncio.run(invoke(503))
+
+
+def test_client_mints_least_privilege_token_for_each_operation():
+    scopes = []
+    requests = []
+
+    def token_provider(scope):
+        scopes.append(scope)
+        return f"token-for-{scope}"
+
+    def handler(request):
+        requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={"session_id": str(SESSION)})
+        return httpx.Response(204)
+
+    client = GoalIntelligenceClient(
+        base_url="http://goal-intelligence",
+        token_provider=token_provider,
+        transport=httpx.MockTransport(handler),
+    )
+    asyncio.run(client.get_candidate(SESSION, 2, CORRELATION))
+    asyncio.run(client.mark_confirmed(SESSION, uuid.uuid4(), 2, CORRELATION))
+    assert scopes == ["gi.candidate.read", "gi.confirmation.write"]
+    assert requests[0].headers["Authorization"] == "Bearer token-for-gi.candidate.read"
+    assert requests[1].headers["Authorization"] == "Bearer token-for-gi.confirmation.write"

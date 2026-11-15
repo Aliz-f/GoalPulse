@@ -32,6 +32,13 @@ class FakeReads:
         self.spec = json.loads((ROOT / "contracts/examples/goal-spec.product.json").read_text())
         self.created = []
         self.transitions = []
+        self.confirmed = None
+
+    def get_confirmed_for_session(self, session_id):
+        if self.confirmed is None:
+            return None
+        spec, revision = self.confirmed
+        return (spec, revision, uuid.UUID(spec["owner_user_id"]))
 
     def get_version(self, goal_id, version):
         return self.spec if goal_id == GOAL and version == 1 else None
@@ -56,6 +63,8 @@ class FakeReads:
 
     def create_version_one(self, record):
         self.created.append(record)
+        self.confirmed = (record.spec, record.approved_draft_revision)
+        return record.spec
 
 
 class FakeCandidates:
@@ -201,6 +210,51 @@ def test_confirmed_goal_is_not_rolled_back_when_gi_ux_mark_is_unavailable():
     assert len(reads.created) == 1
 
 
+def test_exact_confirmation_replay_returns_durable_goal_without_second_activation():
+    reads = FakeReads()
+    candidates = FakeCandidates()
+    first = request(
+        "POST",
+        f"/v1/goal-sessions/{SESSION}/confirm",
+        headers={"Authorization": bearer(kind="user")},
+        body={"expected_revision": 2, "approved": True},
+        reads=reads,
+        candidates=candidates,
+    )
+    second = request(
+        "POST",
+        f"/v1/goal-sessions/{SESSION}/confirm",
+        headers={"Authorization": bearer(kind="user")},
+        body={"expected_revision": 2, "approved": True},
+        reads=reads,
+        candidates=candidates,
+    )
+    assert first.status_code == second.status_code == 201
+    assert first.json() == second.json()
+    assert len(reads.created) == 1
+    assert len(candidates.confirmed) == 1
+
+    stale = request(
+        "POST",
+        f"/v1/goal-sessions/{SESSION}/confirm",
+        headers={"Authorization": bearer(kind="user")},
+        body={"expected_revision": 3, "approved": True},
+        reads=reads,
+        candidates=candidates,
+    )
+    assert stale.status_code == 409
+    foreign = request(
+        "POST",
+        f"/v1/goal-sessions/{SESSION}/confirm",
+        headers={"Authorization": bearer(kind="user", subject=uuid.uuid4())},
+        body={"expected_revision": 2, "approved": True},
+        reads=reads,
+        candidates=candidates,
+    )
+    assert foreign.status_code == 404
+    assert len(reads.created) == 1
+
+
 def test_confirm_rejects_stale_foreign_and_invalid_candidates():
     stale = FakeCandidates()
     stale.candidate["revision"] = 3
@@ -240,3 +294,22 @@ def test_public_filters_and_lifecycle_bodies_are_strict():
         headers=user_auth,
         body={"action": "pause", "unexpected": "value"},
     ).status_code == 422
+
+
+def test_public_goal_detail_masks_cross_owner_and_remains_exact_goal_spec():
+    own = request(
+        "GET",
+        f"/v1/goals/{GOAL}",
+        headers={"Authorization": bearer(kind="user")},
+    )
+    foreign = request(
+        "GET",
+        f"/v1/goals/{GOAL}",
+        headers={"Authorization": bearer(kind="user", subject=uuid.uuid4())},
+    )
+    assert own.status_code == 200
+    assert set(own.json()) == {
+        "goal_id", "owner_user_id", "version", "title", "goal_type",
+        "criteria", "monitoring", "actions", "approved_at",
+    }
+    assert foreign.status_code == 404

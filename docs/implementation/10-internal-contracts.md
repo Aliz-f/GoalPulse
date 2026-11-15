@@ -37,6 +37,9 @@ the generic `gm.read` scope grants no access.
 ## DM → GE: source fan-out
 
 - GET `/internal/v1/sources/{source_id}/subscriptions`: `{source_id, subscriptions:[{goal_id,goal_version}]}`.
+- ADR-0005 additive extension: GET `/internal/v1/goals/{goal_id}/versions/{version}/sources`
+  returns the complete UUID-sorted set of at most three active source IDs for an
+  exact DM-known activation version. See `contracts/openapi/internal.goal-sources.v1.yaml`.
 - Do not trust this alone for active status; DM may be temporarily behind lifecycle change, and GM remains authoritative.
 - GET `/internal/v1/sources/{source_id}`: `{source_id,source_url,canonical_url,hostname}` only (no provider secret).
 

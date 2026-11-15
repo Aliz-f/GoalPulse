@@ -49,7 +49,10 @@ def test_rabbitmq_topology_matches_frozen_event_routing():
         for consumer in item["consumers"]:
             queue_name = f"goalpulse.{consumer}.{event_type}"
             assert queues[queue_name]["durable"] is True
-            assert queues[queue_name]["arguments"]["x-queue-type"] == "quorum"
+            # Shipped D4 consumers declare durable classic queues. Keep the
+            # imported topology equivalent so RabbitMQ does not close their
+            # channels with PRECONDITION_FAILED.
+            assert "x-queue-type" not in queues[queue_name]["arguments"]
             assert queues[queue_name]["arguments"]["x-dead-letter-exchange"] == "goalpulse.dlx"
             assert any(
                 binding["destination"] == queue_name and binding["routing_key"] == event_type
@@ -57,6 +60,7 @@ def test_rabbitmq_topology_matches_frozen_event_routing():
             )
             dlq_name = f"{queue_name}.dlq"
             assert queues[dlq_name]["durable"] is True
+            assert "x-queue-type" not in queues[dlq_name]["arguments"]
             assert queues[queue_name]["arguments"]["x-dead-letter-routing-key"] == dlq_name
 
 
@@ -79,3 +83,95 @@ def test_compose_mounts_bootstrap_and_broker_definitions():
         "AGENT_INTEGRATION_DB_PASSWORD",
     ):
         assert name in postgres_environment
+
+
+def test_gateway_is_only_application_port_and_services_use_private_networks():
+    compose = yaml.safe_load((INFRASTRUCTURE / "docker-compose.yml").read_text(encoding="utf-8"))
+    services = compose["services"]
+    assert services["gateway"]["ports"] == ["127.0.0.1:${GATEWAY_HOST_PORT:-8000}:8000"]
+    api_services = (
+        "goal-intelligence",
+        "goal-management",
+        "discovery-monitoring",
+        "data-evidence",
+        "goal-evaluation",
+        "notification",
+        "agent-integration",
+    )
+    for service in api_services:
+        assert "ports" not in services[service]
+        assert services[service]["expose"] == ["8000"]
+        assert services[service]["healthcheck"]
+    assert services["gateway"]["networks"] == ["app"]
+    for service in api_services:
+        assert set(services[service]["networks"]) == {"app", "data"}
+    assert "data" not in services["gateway"]["networks"]
+    for service in ("postgres", "rabbitmq"):
+        assert "app" not in services[service].get("networks", [])
+
+
+def test_goal_intelligence_migrates_before_api_and_gateway_waits_for_health():
+    compose = yaml.safe_load((INFRASTRUCTURE / "docker-compose.yml").read_text(encoding="utf-8"))
+    services = compose["services"]
+    assert services["goal-intelligence-migrate"]["depends_on"]["postgres"]["condition"] == "service_healthy"
+    assert services["goal-intelligence"]["depends_on"]["goal-intelligence-migrate"]["condition"] == "service_completed_successfully"
+    assert services["gateway"]["depends_on"]["goal-intelligence"]["condition"] == "service_healthy"
+    assert services["gateway"]["environment"]["GOAL_INTELLIGENCE_URL"] == "http://goal-intelligence:8000"
+
+
+def test_all_service_migrations_workers_and_gateway_dependencies_are_declared():
+    compose = yaml.safe_load((INFRASTRUCTURE / "docker-compose.yml").read_text(encoding="utf-8"))
+    services = compose["services"]
+    migrations = {
+        "goal-intelligence": "goal-intelligence-migrate",
+        "goal-management": "goal-management-migrate",
+        "goal-evaluation": "goal-evaluation-migrate",
+        "notification": "notification-migrate",
+        "agent-integration": "agent-integration-migrate",
+    }
+    for api, migration in migrations.items():
+        assert services[api]["depends_on"][migration]["condition"] == "service_completed_successfully"
+        assert services[migration]["restart"] == "no"
+
+    workers = {
+        "goal-management-outbox",
+        "goal-management-evaluations",
+        "discovery-monitoring-consumer",
+        "discovery-monitoring-worker",
+        "discovery-monitoring-scheduler",
+        "data-evidence-publisher",
+        "goal-evaluation-worker",
+        "notification-worker",
+        "agent-integration-worker",
+    }
+    assert workers <= services.keys()
+    for worker in workers:
+        inherited = services[worker]
+        while "restart" not in inherited:
+            inherited = services[inherited["extends"]["service"]]
+        assert inherited["restart"] == "unless-stopped"
+        assert "ports" not in services[worker]
+
+    api_urls = {
+        "GOAL_INTELLIGENCE_URL": "goal-intelligence",
+        "GOAL_MANAGEMENT_URL": "goal-management",
+        "DISCOVERY_MONITORING_URL": "discovery-monitoring",
+        "DATA_EVIDENCE_URL": "data-evidence",
+        "GOAL_EVALUATION_URL": "goal-evaluation",
+        "NOTIFICATION_URL": "notification",
+        "AGENT_INTEGRATION_URL": "agent-integration",
+    }
+    gateway = services["gateway"]
+    for variable, service in api_urls.items():
+        assert gateway["environment"][variable] == f"http://{service}:8000"
+        assert gateway["depends_on"][service]["condition"] == "service_healthy"
+
+
+def test_demo_runtime_has_no_fixture_or_mock_fallback_in_compose():
+    compose_text = (INFRASTRUCTURE / "docker-compose.yml").read_text(encoding="utf-8")
+    compose = yaml.safe_load(compose_text)
+    services = compose["services"]
+    assert services["goal-intelligence"]["environment"]["GI_LLM_PROVIDER"] == "${GI_LLM_PROVIDER:-fixture}"
+    assert services["discovery-monitoring"]["environment"]["CONTEXT_DEV_API_KEY"] == "${CONTEXT_DEV_API_KEY:?Set CONTEXT_DEV_API_KEY}"
+    assert "fixture" not in " ".join(services["data-evidence"]["command"])
+    assert services["gateway"]["environment"]["NEXT_PUBLIC_API_MODE"] == "${NEXT_PUBLIC_API_MODE:-}"

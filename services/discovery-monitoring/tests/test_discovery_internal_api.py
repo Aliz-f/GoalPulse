@@ -39,6 +39,11 @@ class Registry:
     def subscriptions(self, source_id):
         return [(self.goal_id, 3)] if source_id == self.source.source_id else []
 
+    def sources_for_goal(self, goal_id, version):
+        if goal_id != self.goal_id or version != 3:
+            return None
+        return [self.source.source_id]
+
 
 def test_source_reads_require_service_scope_and_match_contract(monkeypatch):
     monkeypatch.setenv("SERVICE_JWT_SECRET", "test-secret")
@@ -70,3 +75,59 @@ def test_source_reads_require_service_scope_and_match_contract(monkeypatch):
         "source_id": str(registry.source.source_id),
         "subscriptions": [{"goal_id": str(registry.goal_id), "goal_version": 3}],
     }
+
+
+def test_goal_version_sources_require_scope_correlation_and_exact_known_version(monkeypatch):
+    monkeypatch.setenv("SERVICE_JWT_SECRET", "test-secret")
+    monkeypatch.setenv("SERVICE_JWT_ISSUER", "goalpulse-tests")
+    monkeypatch.setenv("SERVICE_JWT_AUDIENCE", "goalpulse-internal")
+    registry = Registry()
+    app = create_app(registry)
+
+    def get(path, *, headers=None):
+        async def run():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://dm"
+            ) as client:
+                return await client.get(path, headers=headers)
+
+        return asyncio.run(run())
+
+    path = f"/internal/v1/goals/{registry.goal_id}/versions/3/sources"
+    auth = {"Authorization": token("dm.sources.read")}
+    assert get(path).status_code == 403
+    assert get(path, headers=auth).status_code == 400
+    headers = {**auth, "X-Correlation-ID": str(uuid4())}
+    response = get(path, headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {
+        "goal_id": str(registry.goal_id),
+        "goal_version": 3,
+        "source_ids": [str(registry.source.source_id)],
+    }
+    assert get(path.replace("/3/", "/2/"), headers=headers).status_code == 404
+
+
+def test_goal_version_sources_distinguish_empty_and_fail_closed_on_oversize(monkeypatch):
+    monkeypatch.setenv("SERVICE_JWT_SECRET", "test-secret")
+    monkeypatch.setenv("SERVICE_JWT_ISSUER", "goalpulse-tests")
+    monkeypatch.setenv("SERVICE_JWT_AUDIENCE", "goalpulse-internal")
+    registry = Registry()
+    app = create_app(registry)
+    headers = {
+        "Authorization": token("dm.sources.read"),
+        "X-Correlation-ID": str(uuid4()),
+    }
+    path = f"/internal/v1/goals/{registry.goal_id}/versions/3/sources"
+
+    async def get():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://dm"
+        ) as client:
+            return await client.get(path, headers=headers)
+
+    registry.sources_for_goal = lambda *_: []
+    response = asyncio.run(get())
+    assert response.status_code == 200 and response.json()["source_ids"] == []
+    registry.sources_for_goal = lambda *_: [uuid4(), uuid4(), uuid4(), uuid4()]
+    assert asyncio.run(get()).status_code == 503

@@ -22,8 +22,8 @@ from .worker import ConfirmedPublisher, EvaluationWorker
 class CompleteSubscriptions:
     """Combine accepted source→goals HTTP with D1/D3's approved reverse binding.
 
-    No reverse URL or DTO is invented here. A caller must supply the complete
-    exact-version lookup once approved, or explicit recorded test input.
+    ADR-0005 owns the reverse URL and DTO. The deployment supplies that complete
+    exact-version lookup, or tests supply explicit recorded input.
     """
 
     def __init__(self, reader: SubscriptionHttpReader, reverse: Callable):
@@ -59,9 +59,8 @@ def build_runtime(*, connect_database: Callable, broker_connection, queue: str,
                   procurement_normalization_confirmed: bool = False) -> EvaluationRuntime:
     """Build the actual consumer/sink/outbox graph, with no implicit fixtures.
 
-    Missing reverse lookup is a startup error. D1's dependencies_ready must also
-    verify the approved binding and required upstream configuration. Live
-    readiness stays false until that integration exists. D1 provisions DLX/DLQ
+    Missing reverse lookup is a startup error. D1's dependencies_ready also
+    verifies the required upstream configuration. D1 provisions DLX/DLQ
     bindings and connection deadlines; apply owned migrations 001..004 first.
     """
     if not callable(sources_for_goal) or not callable(dependencies_ready):
