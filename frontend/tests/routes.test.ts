@@ -46,7 +46,14 @@ describe("browser credentials (ADR-0003 MVP-06)", () => {
   it("never stores, reads or sends a token from the browser", () => {
     for (const file of files(SRC)) {
       const text = code(readFileSync(file, "utf8"));
-      assert.doesNotMatch(text, /\b(sessionStorage|localStorage|document\.cookie|indexedDB)\b/, `${file} uses browser storage`);
+      assert.doesNotMatch(text, /\b(sessionStorage|localStorage|indexedDB)\b/, `${file} uses browser storage`);
+      if (file.endsWith("/lib/api/http.ts")) {
+        assert.match(text, /document\.cookie/, "the HTTP client reads the intentionally browser-readable CSRF cookie");
+        assert.match(text, /goalpulse_csrf/);
+        assert.doesNotMatch(text, /goalpulse_session/, "the HTTP client must not read the HttpOnly identity cookie");
+      } else {
+        assert.doesNotMatch(text, /document\.cookie/, `${file} reads browser cookies`);
+      }
       assert.doesNotMatch(text, /Authorization|Bearer /, `${file} builds an Authorization header`);
       assert.doesNotMatch(text, /credentials:\s*["']omit["']/, `${file} drops the session cookie`);
     }

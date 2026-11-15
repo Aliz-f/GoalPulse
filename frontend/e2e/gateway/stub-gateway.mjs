@@ -97,12 +97,13 @@ const NOTIFICATIONS = [{
   },
 }];
 
-const sessions = new Map(); // cookie value -> user
+const sessions = new Map(); // identity-cookie value -> user
+const csrfTokens = new Map(); // identity-cookie value -> double-submit token
 
 function cors(res) {
   res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Headers", "Accept, Content-Type, X-Correlation-ID");
+  res.setHeader("Access-Control-Allow-Headers", "Accept, Content-Type, X-CSRF-Token, X-Correlation-ID");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH");
   res.setHeader("Vary", "Origin");
 }
@@ -117,6 +118,14 @@ function send(res, status, body) {
 function userOf(req) {
   const match = /(?:^|;\s*)goalpulse_session=([^;]+)/.exec(req.headers.cookie ?? "");
   return match ? (sessions.get(match[1]) ?? null) : null;
+}
+
+function validCsrf(req) {
+  const cookies = req.headers.cookie ?? "";
+  const session = /(?:^|;\s*)goalpulse_session=([^;]+)/.exec(cookies)?.[1];
+  const cookie = /(?:^|;\s*)goalpulse_csrf=([^;]+)/.exec(cookies)?.[1];
+  const header = req.headers["x-csrf-token"];
+  return Boolean(session && cookie && header && cookie === header && csrfTokens.get(session) === cookie);
 }
 
 const expiresAt = () => new Date(Date.now() + 15 * 60_000).toISOString();
@@ -144,16 +153,32 @@ createServer(async (req, res) => {
     const user = body && USERS[body.username];
     if (!user || user.password !== body.password) return send(res, 401, { code: "unauthorized", message: "invalid demo credentials" });
     const value = randomUUID();
+    const csrf = randomUUID();
     sessions.set(value, user);
-    res.setHeader("Set-Cookie", `goalpulse_session=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=900`);
+    csrfTokens.set(value, csrf);
+    res.setHeader("Set-Cookie", [
+      `goalpulse_session=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=900`,
+      `goalpulse_csrf=${csrf}; SameSite=Lax; Path=/; Max-Age=900`,
+    ]);
     return send(res, 200, identity(user));
   }
 
   const user = userOf(req);
+  if (mutating && user && !validCsrf(req)) {
+    return send(res, 403, { code: "forbidden", message: "request integrity check failed" });
+  }
   if (req.method === "POST" && pathname === "/v2/demo/sessions/logout") {
     if (!user) return send(res, 401, { code: "unauthorized", message: "no session" });
-    res.setHeader("Set-Cookie", "goalpulse_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
-    sessions.forEach((u, k) => u === user && sessions.delete(k));
+    res.setHeader("Set-Cookie", [
+      "goalpulse_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0",
+      "goalpulse_csrf=; SameSite=Lax; Path=/; Max-Age=0",
+    ]);
+    sessions.forEach((u, k) => {
+      if (u === user) {
+        sessions.delete(k);
+        csrfTokens.delete(k);
+      }
+    });
     return send(res, 204);
   }
   if (!user) return send(res, 401, { code: "unauthorized", message: "valid demo session required" });
