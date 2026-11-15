@@ -36,6 +36,7 @@ The product owner delegated the Phase 2 MVP policy choices recorded by ADR-0003.
 | 2026-11-14 | MVP-20 | P0 release requires the full truthful live path and honest Unknown; recorded fixtures separately prove Verified/Notification and must be labeled. | Product owner; D1 integration | R2-D1-03; PR pending |
 | 2026-11-14 | ICP-14 | Accepted additive internal evidence-proof v1 transport under ADR-0004. Frozen Observation/event/internal v1 contracts remain unchanged; D4 consumption is deferred. | Product owner; D1/D3 integration | PR #11 remediation |
 | 2026-11-15 | ICP-15 | Accepted additive complete goal-version-to-active-sources internal read under ADR-0005. The accepted internal v1 document, frozen schemas and events remain unchanged. | Developers 1, 3 and 4 | R2-D1-01 completion |
+| 2026-11-15 | JUNCTION-CTX-01 | Accepted a default-off controlled-demo override that uses real Context.dev without a provider access-policy ID. Such captures remain unverified and cannot produce a verified opportunity; see ADR-0006. | Product owner; Developer 1 | Junction MVP release exception |
 
 ### ICP resolution summary for Phase 2
 

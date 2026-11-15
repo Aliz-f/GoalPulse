@@ -148,6 +148,10 @@ def validate(values: dict[str, str], compose_path: Path) -> list[str]:
     if api_mode not in {"mock", "gateway"}:
         errors.append("NEXT_PUBLIC_API_MODE must be mock or gateway")
 
+    context_without_policy = values.get("DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY", "false").lower()
+    if context_without_policy not in {"true", "false"}:
+        errors.append("DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY must be true or false")
+
     merchant_hosts = [item.strip() for item in values.get("DE_MERCHANT_HOSTS", "").split(",") if item.strip()]
     if not merchant_hosts:
         errors.append("DE_MERCHANT_HOSTS must contain at least one approved hostname")
@@ -182,8 +186,12 @@ def validate(values: dict[str, str], compose_path: Path) -> list[str]:
         if not values.get("CONTEXT_DEV_API_KEY"):
             errors.append("demo requires CONTEXT_DEV_API_KEY")
         policy_ids = [item.strip() for item in values.get("CONTEXT_DEV_ACCESS_POLICY_IDS", "").split(",") if item.strip()]
-        if not policy_ids or any(not re.fullmatch(r"pol_[A-Za-z0-9_-]+", item) for item in policy_ids):
-            errors.append("demo requires provider-issued CONTEXT_DEV_ACCESS_POLICY_IDS beginning with pol_")
+        if ((not policy_ids and context_without_policy != "true")
+                or any(not re.fullmatch(r"pol_[A-Za-z0-9_-]+", item) for item in policy_ids)):
+            errors.append(
+                "demo requires provider-issued CONTEXT_DEV_ACCESS_POLICY_IDS beginning with pol_ "
+                "or DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY=true"
+            )
         if values.get("DE_EVIDENCE_MODE") != "real":
             errors.append("demo requires DE_EVIDENCE_MODE=real")
         if values.get("DE_EVIDENCE_PROVIDER") != "real":

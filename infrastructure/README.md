@@ -36,8 +36,10 @@ never displayed, and the written file is forced to mode `0600`.
 
 The validator never displays values. In `demo`, it fails closed unless the
 frontend uses Gateway, the public HTTPS origins match, demo identities are
-complete, Anthropic and Context.dev are selected, a real `pol_...` provider
-policy is present, and evidence fixtures are disabled.
+complete, Anthropic and Context.dev are selected, and evidence fixtures are
+disabled. A real `pol_...` provider policy is required by default. ADR-0006's
+explicit controlled-demo exception may omit it, but resulting evidence remains
+unverified.
 
 The frontend receives only three public build arguments: profile, API mode, and
 public Gateway origin. API keys, DB/broker passwords, session secrets, and JWT
@@ -103,8 +105,9 @@ passwords in `.env` does not rotate credentials stored in an existing volume.
 - `demo`: real Gateway, Anthropic, Context.dev, and Data & Evidence paths only.
 
 There is no approved `prod` profile. A demo provider failure remains visible and
-never silently switches to fixtures. Context.dev access-policy IDs are mandatory
-for the release validator and controlled-live gate.
+never silently switches to fixtures. Context.dev access-policy IDs are required
+by default; the default-off ADR-0006 exception permits real discovery without a policy
+for the controlled Junction demo without promoting that evidence to checked.
 
 ## Release gate
 

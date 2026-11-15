@@ -76,6 +76,7 @@ CHOICES = {
     "DE_EVIDENCE_MODE": {"real", "fixture"},
     "DE_EVIDENCE_PROVIDER": {"real", "fixture"},
     "DE_ALLOW_FIXTURE": {"true", "false"},
+    "DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY": {"true", "false"},
 }
 INTEGER_RANGES = {
     "GATEWAY_DEMO_SESSION_TTL_SECONDS": (300, 3600),
@@ -152,7 +153,7 @@ def _required(name: str, values: dict[str, str]) -> bool:
     }:
         return profile == "demo"
     if name == "CONTEXT_DEV_ACCESS_POLICY_IDS":
-        return profile == "demo"
+        return profile == "demo" and values.get("DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY", "false") != "true"
     if name in {"GI_LLM_MODEL", "ANTHROPIC_API_KEY"}:
         return values.get("GI_LLM_PROVIDER") == "anthropic"
     if name in {"GI_LLM_EFFORT", "DM_OPERATOR_IDS"}:

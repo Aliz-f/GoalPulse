@@ -20,9 +20,11 @@ it is not an external identity provider. Before a public launch, complete a
 separate production-auth, privacy, security, observability, backup, and incident
 response review.
 
-Live discovery also requires a Context.dev outbound access-policy ID beginning
-with `pol_`. The release validator intentionally blocks demo configuration when
-that value is unavailable. It does not invent a policy or fall back to fixtures.
+Live discovery normally requires a Context.dev outbound access-policy ID
+beginning with `pol_`. For the controlled Junction demo only, ADR-0006 permits
+the explicit `DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY=true` exception. It still
+uses the real provider and never falls back to fixtures, but captures remain
+unverified and cannot produce a verified opportunity until a real policy is set.
 
 ## Architecture
 
