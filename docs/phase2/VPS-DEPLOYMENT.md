@@ -124,18 +124,85 @@ The worktree should be clean. Do not deploy an unreviewed branch or copy a local
 
 ## 5. Configure the centralized environment
 
-Create the only runtime environment file:
+`.env.example` documents every Compose variable with its description and
+accepted options. `infrastructure/release/manage_env.py` is the supported way to
+create, inspect, and update the root `.env`; operators should not maintain a
+second service-specific env file.
+
+### 5.1 First-time setup with the manager
+
+On a fresh VPS, generate all application-owned random secrets and UUIDs first,
+then answer the remaining prompts:
 
 ```bash
 cd /opt/goalpulse
-cp .env.example .env
-chmod 600 .env
+python3 infrastructure/release/manage_env.py --generate-random
 ```
 
-Edit `.env` locally on the VPS. Do not paste its contents into tickets, chat,
-shell history, CI artifacts, or logs.
+The manager generates only invalid or placeholder database, broker, JWT,
+session, and UUID values. It does not replace an already-valid value. It then
+asks one variable at a time for remaining required, invalid, or placeholder
+values. API keys and other secret input are read without echo; existing secret
+values are shown only as `[configured secret]`.
 
-### 5.1 Deployment and public origin
+Prompt controls are:
+
+- type a value and press Enter to replace the current value;
+- press Enter without a value to retain the current value;
+- enter `s` to skip the variable and finish it on a later run;
+- enter `-` to clear the value;
+- enter `g` when offered to generate a secret, UUID, or salted password hash.
+
+The manager writes atomically and forces `.env` to mode `0600`. It also
+preserves legacy/custom variables already present in `.env`, placing them in a
+clearly marked section after the current template variables.
+
+Manager exit statuses have operational meaning:
+
+| Status | Meaning | Operator action |
+|---|---|---|
+| `0` | The managed environment and full Compose requirements are valid. | Continue to quiet Compose validation. |
+| `1` | The template, selection, permissions, or environment is invalid in check mode. | Correct the named problem; values are not printed. |
+| `2` | `.env` was safely written but skipped or invalid variables remain. | Rerun the manager and finish the named fields. |
+| `130` | Input was cancelled with Ctrl-C/EOF before writing. | Rerun; no changes from that invocation were saved. |
+
+If a value is unavailable, enter `s`. The partial file is intentionally saved
+so setup can resume later:
+
+```bash
+python3 infrastructure/release/manage_env.py
+```
+
+Do not start or claim the live demo while `--check` returns nonzero. In
+particular, a skipped Context.dev policy ID cannot be replaced with a fabricated
+value or a fixture fallback.
+
+Common management commands are:
+
+```bash
+# Review every variable; secrets remain hidden.
+python3 infrastructure/release/manage_env.py --all
+
+# Change one value even when its current value is valid.
+python3 infrastructure/release/manage_env.py --only GI_LLM_MODEL
+
+# Change matching public origins together. --only is repeatable.
+python3 infrastructure/release/manage_env.py \
+  --only NEXT_PUBLIC_GATEWAY_URL \
+  --only GATEWAY_DEMO_ALLOWED_ORIGIN
+
+# Redacted, non-interactive readiness check; never writes .env.
+python3 infrastructure/release/manage_env.py --check
+
+# Manage an alternate staging file when explicitly required.
+python3 infrastructure/release/manage_env.py --env-file /secure/path/staging.env
+```
+
+Do not paste `.env` contents into tickets, chat, shell history, CI artifacts, or
+logs. Do not use `--env-file` to create competing per-service configuration in
+the release deployment; the root `/opt/goalpulse/.env` remains authoritative.
+
+### 5.2 Deployment and public origin
 
 Set:
 
@@ -160,10 +227,23 @@ All host port variables remain loopback-bound by Compose. If the VPS already
 uses a default port, change the host-side number in `.env` and make the matching
 Nginx upstream change. Do not change container ports.
 
-### 5.2 Generate independent secrets
+### 5.3 Generated and externally supplied values
 
-Generate a fresh URL-safe value for every password and JWT/session secret. Run
-the following command separately for each field and paste only into `.env`:
+Generate a fresh URL-safe value for every password and JWT/session secret. At
+each matching manager prompt, enter `g`, or use `--generate-random` on the
+first run. The manager generates independent values without displaying them.
+
+| Variable class | How to configure |
+|---|---|
+| `POSTGRES_PASSWORD`, all `*_DB_PASSWORD` values, `RABBITMQ_DEFAULT_PASS`, JWT secrets, and the session secret | Enter `g`, or use `--generate-random`. |
+| Demo user UUIDs | Enter `g`, or use `--generate-random`; the manager enforces distinct UUID v4 values. |
+| Demo user password hashes | Enter `g`, then type and confirm the intended login password privately. Only the salted hash is stored. |
+| Anthropic and Context.dev API keys | Paste provider-issued credentials at the hidden prompt. The manager cannot generate them. |
+| Context.dev policy IDs | Enter one or more provider-issued `pol_...` IDs. Never invent an ID. |
+| Public origins, merchant hosts, and model ID | Enter deployment/account-specific approved values. |
+
+For a manual recovery workflow, run the following command separately for each
+field and paste only into `.env`:
 
 ```bash
 python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
@@ -180,14 +260,16 @@ Use independent values for:
 Do not reuse the API keys as application secrets. URL-safe values avoid
 breaking the PostgreSQL and AMQP URLs assembled by Compose.
 
-Generate two distinct user UUIDs:
+The manager also generates two distinct user UUIDs when you enter `g`. The
+manual equivalent is:
 
 ```bash
 python3 -c 'import uuid; print(uuid.uuid4())'
 ```
 
-Generate each demo-user password hash interactively; plaintext is read without
-echo and is never written by the command:
+For each demo-user password hash, enter `g` and provide the password twice. The
+manager reads plaintext without echo and stores only the generated hash. The
+manual equivalent is:
 
 ```bash
 PYTHONPATH=infrastructure/gateway python3 -c \
@@ -199,7 +281,7 @@ Put only the resulting `pbkdf2_sha256$...` values in
 `GATEWAY_DEMO_USER_B_PASSWORD_HASH`. Use long, unique passwords and transfer
 them to the two authorized users through an approved secret channel.
 
-### 5.3 Providers and evidence
+### 5.4 Providers and evidence
 
 Configure the real runtime:
 
@@ -221,7 +303,7 @@ account can use and that has been verified against Goal Intelligence's tests.
 Policy IDs may be comma-separated. Merchant entries are hostnames only—no
 scheme, port, path, wildcard, localhost, or private address.
 
-### 5.4 Validate before Docker
+### 5.5 Validate before Docker
 
 Check permissions, placeholders, completeness, ports, origins, secrets, demo
 users, provider modes, policy IDs, and merchant hosts. The validator reports
@@ -229,11 +311,13 @@ variable names and problems only; it never prints values.
 
 ```bash
 cd /opt/goalpulse
+python3 infrastructure/release/manage_env.py
+python3 infrastructure/release/manage_env.py --check
 python3 infrastructure/release/validate_env.py --env-file .env
 docker compose -f infrastructure/docker-compose.yml --env-file .env config --quiet
 ```
 
-Both commands must pass. Also verify that no placeholder remains:
+All four commands must pass. Also verify that no placeholder remains:
 
 ```bash
 grep -n 'CHANGE_ME' .env
@@ -492,6 +576,8 @@ Example application step after checkout:
 
 ```bash
 cd /opt/goalpulse
+python3 infrastructure/release/manage_env.py
+python3 infrastructure/release/manage_env.py --check
 python3 infrastructure/release/validate_env.py --env-file .env
 docker compose -f infrastructure/docker-compose.yml --env-file .env config --quiet
 docker compose -f infrastructure/docker-compose.yml --env-file .env \
@@ -535,6 +621,22 @@ rotates stateless application credentials; existing demo sessions become invalid
 when the session secret changes. Rotate provider keys in their provider consoles
 and update `.env` through a secure channel.
 
+Use the manager for a deliberate stateless secret update, entering `g` when
+generation is offered or pasting the newly issued provider key at the hidden
+prompt:
+
+```bash
+python3 infrastructure/release/manage_env.py --only SERVICE_JWT_SECRET
+python3 infrastructure/release/manage_env.py --only GATEWAY_DEMO_SESSION_SECRET
+python3 infrastructure/release/manage_env.py --only ANTHROPIC_API_KEY
+python3 infrastructure/release/manage_env.py --check
+```
+
+Do not use `--generate-random` as a general rotation command: it preserves valid
+values by design. Use `--only NAME` for an intentional replacement. After a
+stateless change, recreate only the documented dependent services and verify
+readiness and authentication behavior.
+
 PostgreSQL and RabbitMQ bootstrap variables are different: their images consume
 those values only when initializing a new volume. Editing `.env` alone does not
 change users stored in existing volumes and can lock services out. Database and
@@ -545,8 +647,9 @@ container, and retains a recovery path.
 ## 16. Release checklist
 
 - [ ] Approved release commit/tag is checked out and worktree is clean.
+- [ ] The environment manager `--check` passes without displaying values.
 - [ ] `.env` is mode `0600`, contains no placeholders, and is not tracked.
-- [ ] Environment validator and quiet Compose validation pass.
+- [ ] Central environment validator and quiet Compose validation pass.
 - [ ] Contract, Python, frontend, recorded, and durable gates pass.
 - [ ] Context.dev key and real `pol_...` policy ID are configured.
 - [ ] Anthropic model/key are verified for the deployment account.

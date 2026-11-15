@@ -56,10 +56,8 @@ Requirements: Docker Engine with the Compose v2 plugin, Python 3.12+ for local
 validation, and Node.js 22 only if running frontend checks outside Docker.
 
 ```bash
-cp .env.example .env
-chmod 600 .env
-# Edit .env and replace every CHANGE_ME value.
-python3 infrastructure/release/validate_env.py
+python3 infrastructure/release/manage_env.py
+python3 infrastructure/release/manage_env.py --check
 docker compose -f infrastructure/docker-compose.yml --env-file .env config --quiet
 docker compose -f infrastructure/docker-compose.yml --env-file .env up -d --build --wait --wait-timeout 300
 docker compose -f infrastructure/docker-compose.yml --env-file .env ps
@@ -98,6 +96,28 @@ frontend public settings, per-service database passwords, RabbitMQ credentials,
 Gateway and service identity, demo users, Anthropic, Context.dev, evidence, and
 notification configuration.
 
+Every template variable has `Description` and `Options` comments. The manager
+creates `.env` when it does not exist, preserves configured values, and prompts
+one at a time only for invalid, empty-required, or placeholder values:
+
+```bash
+python3 infrastructure/release/manage_env.py
+```
+
+At each prompt, enter a replacement, press Enter to retain the current value,
+enter `s` to skip it until a later run, or enter `-` to clear it. For generated
+secrets, demo UUIDs, and demo password hashes, enter `g`. Secret input and
+existing secret values are hidden. A skipped or still-invalid setup is saved
+with mode `0600` and exits with status 2, so rerunning the command resumes the
+unfinished configuration. Use `--all` to review every variable, repeated
+`--only NAME` arguments to manage selected variables, and `--check` for a
+non-interactive, redacted readiness check. Add `--generate-random` to replace
+all invalid or placeholder database/broker/JWT/session secrets and demo UUIDs
+without displaying their values. Provider API keys, access-policy IDs, public
+origins, merchant hosts, and model IDs must come from the operator/provider and
+are never fabricated. Demo password hashes still use per-field `g` so the
+operator can enter and confirm each login password privately.
+
 The three `NEXT_PUBLIC_*` build values are public by design. API keys, passwords,
 session secrets, and service JWT secrets are never passed to the frontend build.
 Changing database or RabbitMQ bootstrap credentials in `.env` does not rotate
@@ -106,6 +126,7 @@ credentials already persisted in an existing volume; follow the VPS runbook.
 Validate configuration without printing values:
 
 ```bash
+python3 infrastructure/release/manage_env.py --check
 python3 infrastructure/release/validate_env.py --env-file .env
 ```
 

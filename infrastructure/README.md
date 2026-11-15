@@ -15,16 +15,24 @@ Gateway ports.
 
 ## Central configuration
 
-The root `.env` is the only Compose environment file. Copy `.env.example`, keep
-it mode `0600`, and configure each domain section. The template exactly covers
-every `${...}` input in Compose.
+The root `.env` is the only Compose environment file. `.env.example` documents
+the description and accepted options for every `${...}` Compose input. Use the
+interactive manager to create or repair `.env`:
 
 ```bash
-cp .env.example .env
-chmod 600 .env
-python3 infrastructure/release/validate_env.py --env-file .env
+python3 infrastructure/release/manage_env.py
+python3 infrastructure/release/manage_env.py --check
 docker compose -f infrastructure/docker-compose.yml --env-file .env config --quiet
 ```
+
+By default, the manager asks one by one only for required empty values, invalid
+values, and placeholders. Enter `s` to skip a variable and resume it on a later
+run. Enter `g` to generate application secrets, UUIDs, or password hashes when
+offered. Use `--all` to review everything or repeat `--only NAME` to manage
+selected variables. `--generate-random` fills every invalid or placeholder
+database/broker/JWT/session secret and demo UUID; it never fabricates external
+API keys, policy IDs, domains, or model IDs. Secret values and secret input are
+never displayed, and the written file is forced to mode `0600`.
 
 The validator never displays values. In `demo`, it fails closed unless the
 frontend uses Gateway, the public HTTPS origins match, demo identities are
