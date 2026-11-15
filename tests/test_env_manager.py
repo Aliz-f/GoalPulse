@@ -50,6 +50,18 @@ def test_placeholder_is_invalid_and_user_can_skip_prompt():
     assert result.value == field.default
 
 
+def test_policy_can_be_cleared_only_with_explicit_without_policy_override():
+    _lines, fields = manage_env.parse_template(ENV_EXAMPLE)
+    values = {item.name: item.default for item in fields}
+    values["GOALPULSE_PROFILE"] = "demo"
+    values["CONTEXT_DEV_ACCESS_POLICY_IDS"] = ""
+
+    assert manage_env.invalid_reason("CONTEXT_DEV_ACCESS_POLICY_IDS", "", values) == "is required"
+
+    values["DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY"] = "true"
+    assert manage_env.invalid_reason("CONTEXT_DEV_ACCESS_POLICY_IDS", "", values) is None
+
+
 def test_manager_generates_valid_secrets_uuid_and_password_hash():
     secret = manage_env._generated("POSTGRES_PASSWORD", lambda _prompt: "unused")
     assert manage_env.invalid_reason("POSTGRES_PASSWORD", secret, {"POSTGRES_PASSWORD": secret}) is None

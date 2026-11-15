@@ -157,7 +157,8 @@ configuration. Only `CONTEXT_DEV_API_KEY` also reads the ignored service-local
 | `DISCOVERY_SERVICE_ID` | Provisioned UUID machine subject. |
 | `SERVICE_JWT_SECRET`, `SERVICE_JWT_ISSUER`, `SERVICE_JWT_AUDIENCE` | Existing accepted ICP-08 credentials; signing secret at least 32 bytes, no repository placeholder. |
 | `CONTEXT_DEV_API_KEY` | Real provider key, server-side only; existing local key loader remains supported. |
-| `CONTEXT_DEV_ACCESS_POLICY_IDS` | Comma-separated IDs for D1-provisioned Context.dev allowlist policies; required in demo. |
+| `CONTEXT_DEV_ACCESS_POLICY_IDS` | Comma-separated IDs for D1-provisioned Context.dev allowlist policies; required in demo unless the ADR-0006 exception is explicitly enabled. |
+| `DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY` | Default `false`. Set `true` only for the controlled Junction demo while provider policies are unavailable; resulting captures cannot become checked. |
 | `DM_MAX_SOURCES_PER_GOAL` | Initial source cap, default 3, maximum 3. |
 | `DM_INITIAL_MAX_OPERATIONS_PER_DAY` | Initial service-wide direct-call cap, default/max 100; every Context HTTP attempt consumes a reservation. |
 | `GOALPULSE_SCHEMA_DIRECTORY` | Optional installed location of the unchanged shared JSON Schemas. |
@@ -206,9 +207,12 @@ only after DE independently validates that proof.
 Initial and persisted source URLs are checked against public DNS and seller-domain
 constraints. Returned private targets/cross-host redirects are rejected; accepted
 same-host final URLs get their own canonical source identity. The remote provider
-resolves independently, so demo also fails closed without configured Context.dev
-allowlist access-policy IDs. Live deployment must verify those policies cover
-redirects; local DNS and an opaque policy ID are not sufficient.
+resolves independently, so demo fails closed by default without configured
+Context.dev allowlist access-policy IDs. ADR-0006 permits an explicit
+controlled-demo exception: the real request omits `policies`, and the capture
+stays unverified because no provider-policy proof exists. A normal live
+deployment must verify configured policies cover redirects; local DNS and an
+opaque policy ID are not sufficient.
 
 For a controlled real activation already queued by GM, use `consume --once` then
 `worker --once`, with the real DE API/outbox publisher running. `--once` neither

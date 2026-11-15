@@ -59,6 +59,7 @@ class RuntimeSettings:
     max_active_goals: int = 2
     max_user_operations: int = 100
     operator_ids: str = field(default="", repr=False)
+    allow_context_without_access_policy: bool = False
 
     def __post_init__(self):
         if self.profile not in ("test", "dev", "demo"):
@@ -69,7 +70,8 @@ class RuntimeSettings:
                 or any(c.isspace() for c in self.context_api_key)):
             raise ConfigurationError("Valid service identity and Context.dev configuration are required")
         if (not isinstance(self.context_access_policy_ids, tuple)
-                or (self.profile == "demo" and not self.context_access_policy_ids)
+                or (self.profile == "demo" and not self.context_access_policy_ids
+                    and not self.allow_context_without_access_policy)
                 or len(self.context_access_policy_ids) > 16
                 or len(set(self.context_access_policy_ids)) != len(self.context_access_policy_ids)
                 or any(not re.fullmatch(r"pol_[A-Za-z0-9_-]{1,196}", value)
@@ -81,6 +83,8 @@ class RuntimeSettings:
         if (type(self.max_active_goals) is not int or not 1 <= self.max_active_goals <= 2
                 or type(self.max_user_operations) is not int or not 1 <= self.max_user_operations <= 100):
             raise ConfigurationError("Per-user monitoring limits exceed supported bounds")
+        if type(self.allow_context_without_access_policy) is not bool:
+            raise ConfigurationError("DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY must be true or false")
         try:
             dbname = conninfo_to_dict(self.database_url).get("dbname")
             allowed = {"discovery_monitoring"}
@@ -112,6 +116,9 @@ class RuntimeSettings:
         key = read_context_api_key(environ=env)
         if not key:
             raise ConfigurationError("CONTEXT_DEV_API_KEY is required")
+        raw_without_policy = env.get("DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY", "false").strip().lower()
+        if raw_without_policy not in ("true", "false"):
+            raise ConfigurationError("DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY must be true or false")
         try:
             return cls(env["GOALPULSE_PROFILE"], env["DISCOVERY_MONITORING_DATABASE_URL"], env["RABBITMQ_URL"],
                        env["GOAL_MANAGEMENT_BASE_URL"], env["DATA_EVIDENCE_BASE_URL"], UUID(env["DISCOVERY_SERVICE_ID"]),
@@ -123,7 +130,7 @@ class RuntimeSettings:
                        int(env.get("DM_INITIAL_MAX_OPERATIONS_PER_DAY", "100")),
                        int(env.get("DM_MAX_ACTIVE_GOALS_PER_USER", "2")),
                        int(env.get("DM_MAX_REQUESTS_PER_USER_PER_DAY", "100")),
-                       env.get("DM_OPERATOR_IDS", ""))
+                       env.get("DM_OPERATOR_IDS", ""), raw_without_policy == "true")
         except ConfigurationError:
             raise
         except (ValueError, TypeError):

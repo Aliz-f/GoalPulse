@@ -67,8 +67,11 @@ loopback for host Nginx; all service APIs remain container-private.
 
 Do not run this from default CI. Obtain explicit approval for one synthetic,
 non-sensitive goal and bounded provider cost, then use privately supplied demo
-credentials, `GI_LLM_PROVIDER=anthropic`, a provisioned model, a Context.dev key
-and access-policy IDs. Never place any value in command arguments or artifacts.
+credentials, `GI_LLM_PROVIDER=anthropic`, a provisioned model, and a Context.dev
+key. Use real access-policy IDs when available. ADR-0006 permits the controlled
+Junction smoke to set `DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY=true`; that run can
+prove real discovery and truthful Unknown, but cannot claim a live checked or
+verified opportunity. Never place secret values in command arguments or artifacts.
 
 1. Start the isolated `demo` Compose stack with the frontend in `gateway` mode. Startup
    must fail if a provider, auth setting, or real-mode requirement is absent.

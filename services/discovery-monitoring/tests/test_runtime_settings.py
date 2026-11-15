@@ -31,6 +31,26 @@ def test_runtime_environment_and_repr_do_not_expose_secrets():
     assert env["DISCOVERY_MONITORING_DATABASE_URL"] not in repr(settings)
 
 
+def test_explicit_junction_override_allows_real_provider_without_policy_ids():
+    env = environment()
+    env["CONTEXT_DEV_ACCESS_POLICY_IDS"] = ""
+    env["DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY"] = "true"
+
+    settings = RuntimeSettings.from_env(env)
+
+    assert settings.profile == "demo"
+    assert settings.context_access_policy_ids == ()
+    assert settings.allow_context_without_access_policy is True
+
+
+def test_demo_still_fails_closed_without_policy_or_explicit_override():
+    env = environment()
+    env["CONTEXT_DEV_ACCESS_POLICY_IDS"] = ""
+
+    with pytest.raises(ConfigurationError, match="access policy"):
+        RuntimeSettings.from_env(env)
+
+
 @pytest.mark.parametrize("name", [
     "GOALPULSE_PROFILE", "DISCOVERY_MONITORING_DATABASE_URL", "RABBITMQ_URL", "GOAL_MANAGEMENT_BASE_URL",
     "DATA_EVIDENCE_BASE_URL", "DISCOVERY_SERVICE_ID", "SERVICE_JWT_SECRET", "SERVICE_JWT_ISSUER", "SERVICE_JWT_AUDIENCE",
@@ -55,6 +75,7 @@ def test_missing_runtime_configuration_fails_without_printing_values(name):
     {"DISCOVERY_SERVICE_ID": "not-a-uuid"},
     {"CONTEXT_DEV_ACCESS_POLICY_IDS": "not-a-policy"},
     {"CONTEXT_DEV_ACCESS_POLICY_IDS": "pol_duplicate,pol_duplicate"},
+    {"DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY": "sometimes"},
 ])
 def test_unsafe_or_fixture_runtime_configuration_is_rejected(changes):
     env = environment()

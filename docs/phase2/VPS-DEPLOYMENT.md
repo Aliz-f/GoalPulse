@@ -20,16 +20,18 @@ The live demo must use:
 
 - `NEXT_PUBLIC_API_MODE=gateway`;
 - Anthropic through Goal Intelligence, never from the browser;
-- Context.dev through Discovery Monitoring, with at least one real provider
-  access-policy ID beginning with `pol_`;
+- Context.dev through Discovery Monitoring, normally with at least one real
+  provider access-policy ID beginning with `pol_`;
 - real Data & Evidence mode with fixtures disabled;
 - exactly two server-configured demo users;
 - no purchase, payment, booking, or other financial execution.
 
-If Context.dev has not provisioned an access-policy ID for the account, finish
-the infrastructure deployment in `dev` mode, but do not claim or run the live
-demo. Contact Context.dev support or the account representative for the missing
-policy. Never invent an ID or remove the startup requirement.
+If Context.dev has not provisioned an access-policy ID for the account, ADR-0006
+permits a controlled Junction demo with real provider calls and truthful
+unverified results. Enable the explicit setting documented in section 5.4; never
+invent an ID or switch the demo to fixtures. Continue asking Context.dev to
+enable policies, because the exception cannot produce checked evidence or a
+verified live opportunity.
 
 ## 2. Target topology
 
@@ -69,7 +71,8 @@ Prepare:
   Certbot installation method recommended for the chosen OS;
 - the repository release commit/tag;
 - Anthropic and Context.dev API keys;
-- a real Context.dev `pol_...` access-policy ID;
+- a real Context.dev `pol_...` access-policy ID, or explicit approval to use the
+  time-bounded ADR-0006 Junction exception;
 - an approved comma-separated merchant hostname allowlist.
 
 A practical starting size is 2 vCPU, 4 GB RAM, and enough encrypted disk for
@@ -173,9 +176,9 @@ so setup can resume later:
 python3 infrastructure/release/manage_env.py
 ```
 
-Do not start or claim the live demo while `--check` returns nonzero. In
-particular, a skipped Context.dev policy ID cannot be replaced with a fabricated
-value or a fixture fallback.
+Do not start or claim the live demo while `--check` returns nonzero. A skipped
+Context.dev policy ID cannot be replaced with a fabricated value or a fixture
+fallback. It may be empty only when the explicit ADR-0006 setting is `true`.
 
 Common management commands are:
 
@@ -239,7 +242,7 @@ first run. The manager generates independent values without displaying them.
 | Demo user UUIDs | Enter `g`, or use `--generate-random`; the manager enforces distinct UUID v4 values. |
 | Demo user password hashes | Enter `g`, then type and confirm the intended login password privately. Only the salted hash is stored. |
 | Anthropic and Context.dev API keys | Paste provider-issued credentials at the hidden prompt. The manager cannot generate them. |
-| Context.dev policy IDs | Enter one or more provider-issued `pol_...` IDs. Never invent an ID. |
+| Context.dev policy IDs | Enter one or more provider-issued `pol_...` IDs. Never invent an ID. If unavailable, use only the explicit ADR-0006 procedure below. |
 | Public origins, merchant hosts, and model ID | Enter deployment/account-specific approved values. |
 
 For a manual recovery workflow, run the following command separately for each
@@ -292,6 +295,7 @@ ANTHROPIC_API_KEY=<SECRET>
 DM_PROVIDER=context_dev
 CONTEXT_DEV_API_KEY=<SECRET>
 CONTEXT_DEV_ACCESS_POLICY_IDS=pol_<PROVIDER_ISSUED_VALUE>
+DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY=false
 DE_EVIDENCE_MODE=real
 DE_EVIDENCE_PROVIDER=real
 DE_ALLOW_FIXTURE=false
@@ -302,6 +306,34 @@ Model availability is account- and date-dependent; select a model the Anthropic
 account can use and that has been verified against Goal Intelligence's tests.
 Policy IDs may be comma-separated. Merchant entries are hostnames only—no
 scheme, port, path, wildcard, localhost, or private address.
+
+For the controlled Junction demo while Context.dev policies are unavailable,
+use this exact alternative:
+
+```dotenv
+DM_PROVIDER=context_dev
+CONTEXT_DEV_API_KEY=<SECRET>
+CONTEXT_DEV_ACCESS_POLICY_IDS=
+DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY=true
+```
+
+The rest of the real provider/evidence settings above stay unchanged. This is
+not mock mode: Context.dev receives real search and scrape requests, and
+failures remain visible. Because no provider-policy proof exists, those captures
+remain unverified; the UI may show candidates and Unknown but must not claim a
+verified opportunity or notification.
+
+Configure the exception through the manager without displaying credentials:
+
+```bash
+python3 infrastructure/release/manage_env.py \
+  --only CONTEXT_DEV_ACCESS_POLICY_IDS \
+  --only DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY
+```
+
+Enter `-` to clear the policy value and enter `true` for the exception. When a
+real policy becomes available, enter the `pol_...` ID and restore the exception
+to `false`, then recreate Discovery Monitoring containers.
 
 ### 5.5 Validate before Docker
 
@@ -664,7 +696,8 @@ container, and retains a recovery path.
 - [ ] `.env` is mode `0600`, contains no placeholders, and is not tracked.
 - [ ] Central environment validator and quiet Compose validation pass.
 - [ ] Contract, Python, frontend, recorded, and durable gates pass.
-- [ ] Context.dev key and real `pol_...` policy ID are configured.
+- [ ] Context.dev key and either a real `pol_...` policy ID or the documented
+      ADR-0006 controlled-demo exception are configured.
 - [ ] Anthropic model/key are verified for the deployment account.
 - [ ] Evidence is real, fixtures are disabled, merchant hosts are approved.
 - [ ] Full Compose stack starts with one command and becomes healthy.

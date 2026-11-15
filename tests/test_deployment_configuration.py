@@ -102,6 +102,20 @@ def test_demo_validator_rejects_missing_context_policy_and_mock_runtime(tmp_path
     assert any("CONTEXT_DEV_ACCESS_POLICY_IDS" in error for error in errors)
 
 
+def test_demo_validator_accepts_explicit_context_without_policy_override():
+    module = validator_module()
+    values, parse_errors = module.parse_env(ENV_EXAMPLE)
+    assert not parse_errors
+    values = {name: value.replace("CHANGE_ME", "configured") for name, value in values.items()}
+    values["NEXT_PUBLIC_API_MODE"] = "gateway"
+    values["CONTEXT_DEV_ACCESS_POLICY_IDS"] = ""
+    values["DM_ALLOW_CONTEXT_WITHOUT_ACCESS_POLICY"] = "true"
+
+    errors = module.validate(values, COMPOSE)
+
+    assert not any("CONTEXT_DEV_ACCESS_POLICY_IDS" in error for error in errors)
+
+
 def test_env_validator_never_displays_values_on_failure(tmp_path):
     env_file = tmp_path / ".env"
     secret_value = "this-value-must-never-be-printed"
