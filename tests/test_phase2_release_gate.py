@@ -99,6 +99,10 @@ def test_compose_ci_environment_uses_nondefault_loopback_ports():
 
 def test_frontend_lane_proves_demo_mock_and_missing_mode_are_refused():
     entries = {entry["id"]: entry for entry in manifest()["lanes"]["frontend"]}
+    demo_build_env = entries["frontend_demo_gateway_build"]["env"]
+    for slot in ("A", "B"):
+        assert demo_build_env[f"NEXT_PUBLIC_DEMO_USER_{slot}_USERNAME"]
+        assert demo_build_env[f"NEXT_PUBLIC_DEMO_USER_{slot}_PASSWORD"]
     for suite in ("frontend_refuses_demo_mock", "frontend_refuses_missing_mode"):
         assert entries[suite]["expected_exit_code"] == 1
         assert entries[suite]["expected_output"]

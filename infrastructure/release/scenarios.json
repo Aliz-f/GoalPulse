@@ -127,6 +127,10 @@
           "NEXT_PUBLIC_GOALPULSE_PROFILE": "demo",
           "NEXT_PUBLIC_API_MODE": "gateway",
           "NEXT_PUBLIC_GATEWAY_URL": "http://localhost:8000",
+        "NEXT_PUBLIC_DEMO_USER_A_USERNAME": "demo-a",
+        "NEXT_PUBLIC_DEMO_USER_A_PASSWORD": "demo-a-pass",
+        "NEXT_PUBLIC_DEMO_USER_B_USERNAME": "demo-b",
+        "NEXT_PUBLIC_DEMO_USER_B_PASSWORD": "demo-b-pass",
           "NEXT_TELEMETRY_DISABLED": "1"
         },
         "scenarios": ["A2", "D2", "D5"]
