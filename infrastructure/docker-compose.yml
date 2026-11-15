@@ -1,4 +1,13 @@
 name: goalpulse-local
+x-service-identity: &service-identity
+  SERVICE_JWT_SECRET: ${SERVICE_JWT_SECRET:?Set SERVICE_JWT_SECRET}
+  SERVICE_JWT_ISSUER: ${SERVICE_JWT_ISSUER:?Set SERVICE_JWT_ISSUER}
+  SERVICE_JWT_AUDIENCE: ${SERVICE_JWT_AUDIENCE:?Set SERVICE_JWT_AUDIENCE}
+x-internal-origins: &internal-origins
+  GOAL_MANAGEMENT_BASE_URL: http://goal-management:8000
+  DISCOVERY_MONITORING_BASE_URL: http://discovery-monitoring:8000
+  DATA_EVIDENCE_BASE_URL: http://data-evidence:8000
+  GOAL_EVALUATION_BASE_URL: http://goal-evaluation:8000
 services:
   postgres:
     image: postgres:16-alpine
@@ -15,7 +24,7 @@ services:
       NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?Set NOTIFICATION_DB_PASSWORD}
       AGENT_INTEGRATION_DB_PASSWORD: ${AGENT_INTEGRATION_DB_PASSWORD:?Set AGENT_INTEGRATION_DB_PASSWORD}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/01-create-service-dbs.sh:/docker-entrypoint-initdb.d/01-create-service-dbs.sh:ro
@@ -24,6 +33,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks: [data]
   rabbitmq:
     image: rabbitmq:4-management-alpine
     restart: unless-stopped
@@ -31,8 +41,8 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS}
     ports:
-      - "127.0.0.1:5672:5672"
-      - "127.0.0.1:15672:15672"
+      - "127.0.0.1:${RABBITMQ_HOST_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_HOST_PORT:-15672}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -40,6 +50,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
+    networks: [data]
   rabbitmq-init:
     image: rabbitmq:4-management-alpine
     restart: "no"
@@ -58,6 +69,391 @@ services:
         rabbitmqadmin --host rabbitmq --port 15672
         --username "$$RABBITMQ_DEFAULT_USER" --password "$$RABBITMQ_DEFAULT_PASS"
         definitions import --file /etc/rabbitmq/definitions.json
+    networks: [data]
+  goal-intelligence-migrate:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args:
+        SERVICE_PATH: services/goal-intelligence
+    restart: "no"
+    working_dir: /workspace/services/goal-intelligence
+    command: ["python", "-m", "goal_intelligence.persistence.migrate"]
+    environment:
+      GI_DATABASE_URL: postgresql://goal_intelligence:${GOAL_INTELLIGENCE_DB_PASSWORD:?Set GOAL_INTELLIGENCE_DB_PASSWORD}@postgres:5432/goal_intelligence
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+  goal-intelligence:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args:
+        SERVICE_PATH: services/goal-intelligence
+    restart: unless-stopped
+    working_dir: /workspace/services/goal-intelligence
+    command:
+      - uvicorn
+      - goal_intelligence.api.app:create_app
+      - --factory
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --no-access-log
+    environment:
+      GOALPULSE_PROFILE: ${GOALPULSE_PROFILE:-dev}
+      GI_DATABASE_URL: postgresql://goal_intelligence:${GOAL_INTELLIGENCE_DB_PASSWORD:?Set GOAL_INTELLIGENCE_DB_PASSWORD}@postgres:5432/goal_intelligence
+      GI_LLM_PROVIDER: ${GI_LLM_PROVIDER:-fixture}
+      GI_LLM_MODEL: ${GI_LLM_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SERVICE_JWT_SECRET: ${SERVICE_JWT_SECRET:?Set SERVICE_JWT_SECRET}
+      SERVICE_JWT_ISSUER: ${SERVICE_JWT_ISSUER:?Set SERVICE_JWT_ISSUER}
+      SERVICE_JWT_AUDIENCE: ${SERVICE_JWT_AUDIENCE:?Set SERVICE_JWT_AUDIENCE}
+    depends_on:
+      goal-intelligence-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).read()
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    expose: ["8000"]
+    networks: [app, data]
+  goal-management-migrate:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args: {SERVICE_PATH: services/goal-management}
+    restart: "no"
+    working_dir: /workspace/services/goal-management
+    command: ["python", "-m", "goal_management.migrate"]
+    environment:
+      GOAL_MANAGEMENT_DATABASE_URL: postgresql://goal_management:${GOAL_MANAGEMENT_DB_PASSWORD:?Set GOAL_MANAGEMENT_DB_PASSWORD}@postgres:5432/goal_management
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [data]
+  goal-management:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args: {SERVICE_PATH: services/goal-management}
+    restart: unless-stopped
+    working_dir: /workspace/services/goal-management
+    command: ["uvicorn", "goal_management.runtime:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    environment:
+      GOAL_MANAGEMENT_DATABASE_URL: postgresql://goal_management:${GOAL_MANAGEMENT_DB_PASSWORD:?Set GOAL_MANAGEMENT_DB_PASSWORD}@postgres:5432/goal_management
+      GOAL_INTELLIGENCE_URL: http://goal-intelligence:8000
+      GATEWAY_DEV_JWT_SECRET: ${GATEWAY_DEV_JWT_SECRET:?Set GATEWAY_DEV_JWT_SECRET}
+      GATEWAY_JWT_ISSUER: ${GATEWAY_JWT_ISSUER:?Set GATEWAY_JWT_ISSUER}
+      GATEWAY_JWT_AUDIENCE: ${GATEWAY_JWT_AUDIENCE:?Set GATEWAY_JWT_AUDIENCE}
+      <<: *service-identity
+    depends_on:
+      goal-management-migrate: {condition: service_completed_successfully}
+      goal-intelligence: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    expose: ["8000"]
+    networks: [app, data]
+  goal-management-outbox:
+    extends: {service: goal-management}
+    command: ["python", "-m", "goal_management.worker"]
+    environment:
+      GOAL_MANAGEMENT_DATABASE_URL: postgresql://goal_management:${GOAL_MANAGEMENT_DB_PASSWORD:?Set GOAL_MANAGEMENT_DB_PASSWORD}@postgres:5432/goal_management
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/%2F
+    depends_on:
+      goal-management: {condition: service_healthy}
+      rabbitmq-init: {condition: service_completed_successfully}
+    healthcheck: {disable: true}
+  goal-management-evaluations:
+    extends: {service: goal-management-outbox}
+    command: ["python", "-m", "goal_management.consumer"]
+  discovery-monitoring:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args: {SERVICE_PATH: services/discovery-monitoring}
+    restart: unless-stopped
+    working_dir: /workspace/services/discovery-monitoring
+    command: ["python", "-m", "goalpulse_discovery", "api", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      GOALPULSE_PROFILE: ${GOALPULSE_PROFILE:-dev}
+      DISCOVERY_MONITORING_DATABASE_URL: postgresql://discovery_monitoring:${DISCOVERY_MONITORING_DB_PASSWORD:?Set DISCOVERY_MONITORING_DB_PASSWORD}@postgres:5432/discovery_monitoring
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/%2F
+      GOAL_MANAGEMENT_BASE_URL: http://goal-management:8000
+      DATA_EVIDENCE_BASE_URL: http://data-evidence:8000
+      DISCOVERY_SERVICE_ID: 00000000-0000-4000-8000-000000000003
+      CONTEXT_DEV_API_KEY: ${CONTEXT_DEV_API_KEY:?Set CONTEXT_DEV_API_KEY}
+      CONTEXT_DEV_ACCESS_POLICY_IDS: ${CONTEXT_DEV_ACCESS_POLICY_IDS:-}
+      DM_MAX_SOURCES_PER_GOAL: ${DM_MAX_SOURCES_PER_GOAL:-3}
+      DM_MAX_ACTIVE_GOALS_PER_USER: ${DM_MAX_ACTIVE_GOALS_PER_USER:-2}
+      DM_MAX_REQUESTS_PER_USER_PER_DAY: ${DM_MAX_REQUESTS_PER_USER_PER_DAY:-100}
+      <<: *service-identity
+    depends_on:
+      postgres: {condition: service_healthy}
+      goal-management: {condition: service_healthy}
+      data-evidence: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    expose: ["8000"]
+    networks: [app, data]
+  discovery-monitoring-consumer:
+    extends: {service: discovery-monitoring}
+    command: ["python", "-m", "goalpulse_discovery", "consume"]
+    depends_on:
+      discovery-monitoring: {condition: service_healthy}
+      rabbitmq-init: {condition: service_completed_successfully}
+    healthcheck: {disable: true}
+  discovery-monitoring-worker:
+    extends: {service: discovery-monitoring-consumer}
+    command: ["python", "-m", "goalpulse_discovery", "worker"]
+  discovery-monitoring-scheduler:
+    extends: {service: discovery-monitoring-consumer}
+    command: ["python", "-m", "goalpulse_discovery", "scheduler"]
+  data-evidence:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args: {SERVICE_PATH: services/data-evidence}
+    restart: unless-stopped
+    working_dir: /workspace/services/data-evidence
+    command: ["python", "-m", "goalpulse_evidence", "api", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      GOALPULSE_PROFILE: ${GOALPULSE_PROFILE:-dev}
+      DATA_EVIDENCE_DATABASE_URL: postgresql://data_evidence:${DATA_EVIDENCE_DB_PASSWORD:?Set DATA_EVIDENCE_DB_PASSWORD}@postgres:5432/data_evidence
+      DE_MERCHANT_HOSTS: ${DE_MERCHANT_HOSTS:?Set DE_MERCHANT_HOSTS}
+      <<: *service-identity
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    expose: ["8000"]
+    networks: [app, data]
+  data-evidence-publisher:
+    extends: {service: data-evidence}
+    command: ["python", "-m", "goalpulse_evidence", "publisher"]
+    environment:
+      GOALPULSE_PROFILE: ${GOALPULSE_PROFILE:-dev}
+      DATA_EVIDENCE_DATABASE_URL: postgresql://data_evidence:${DATA_EVIDENCE_DB_PASSWORD:?Set DATA_EVIDENCE_DB_PASSWORD}@postgres:5432/data_evidence
+      DE_MERCHANT_HOSTS: ${DE_MERCHANT_HOSTS:?Set DE_MERCHANT_HOSTS}
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/%2F
+      <<: *service-identity
+    depends_on:
+      data-evidence: {condition: service_healthy}
+      rabbitmq-init: {condition: service_completed_successfully}
+    healthcheck: {disable: true}
+  goal-evaluation-migrate:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args: {SERVICE_PATH: services/goal-evaluation}
+    restart: "no"
+    command: ["python", "-m", "goalpulse_runtime.d4", "migrate", "goal-evaluation"]
+    environment:
+      GOAL_EVALUATION_DATABASE_URL: postgresql://goal_evaluation:${GOAL_EVALUATION_DB_PASSWORD:?Set GOAL_EVALUATION_DB_PASSWORD}@postgres:5432/goal_evaluation
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [data]
+  goal-evaluation:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args: {SERVICE_PATH: services/goal-evaluation}
+    restart: unless-stopped
+    command: ["python", "-m", "goalpulse_runtime.d4", "ge-api"]
+    environment:
+      GOALPULSE_PROFILE: ${GOALPULSE_PROFILE:-dev}
+      GOAL_EVALUATION_DATABASE_URL: postgresql://goal_evaluation:${GOAL_EVALUATION_DB_PASSWORD:?Set GOAL_EVALUATION_DB_PASSWORD}@postgres:5432/goal_evaluation
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/%2F
+      PLATFORM_SERVICE_ID: 00000000-0000-4000-8000-000000000004
+      <<: [*service-identity, *internal-origins]
+    depends_on:
+      goal-evaluation-migrate: {condition: service_completed_successfully}
+      rabbitmq-init: {condition: service_completed_successfully}
+      discovery-monitoring: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    expose: ["8000"]
+    networks: [app, data]
+  goal-evaluation-worker:
+    extends: {service: goal-evaluation}
+    command: ["python", "-m", "goalpulse_runtime.d4", "ge-worker"]
+    depends_on:
+      goal-evaluation: {condition: service_healthy}
+    healthcheck: {disable: true}
+  notification-migrate:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args: {SERVICE_PATH: services/notification}
+    restart: "no"
+    command: ["python", "-m", "goalpulse_runtime.d4", "migrate", "notification"]
+    environment:
+      NOTIFICATION_DATABASE_URL: postgresql://notification:${NOTIFICATION_DB_PASSWORD:?Set NOTIFICATION_DB_PASSWORD}@postgres:5432/notification
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [data]
+  notification:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args: {SERVICE_PATH: services/notification}
+    restart: unless-stopped
+    command: ["python", "-m", "goalpulse_runtime.d4", "notification-api"]
+    environment:
+      GOALPULSE_PROFILE: ${GOALPULSE_PROFILE:-dev}
+      NOTIFICATION_DATABASE_URL: postgresql://notification:${NOTIFICATION_DB_PASSWORD:?Set NOTIFICATION_DB_PASSWORD}@postgres:5432/notification
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/%2F
+      PLATFORM_SERVICE_ID: 00000000-0000-4000-8000-000000000005
+      NOTIFY_GOAL_RATE_LIMIT_MINUTES: ${NOTIFY_GOAL_RATE_LIMIT_MINUTES:-60}
+      <<: [*service-identity, *internal-origins]
+    depends_on:
+      notification-migrate: {condition: service_completed_successfully}
+      rabbitmq-init: {condition: service_completed_successfully}
+      goal-evaluation: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    expose: ["8000"]
+    networks: [app, data]
+  notification-worker:
+    extends: {service: notification}
+    command: ["python", "-m", "goalpulse_runtime.d4", "notification-worker"]
+    depends_on:
+      notification: {condition: service_healthy}
+    healthcheck: {disable: true}
+  agent-integration-migrate:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args: {SERVICE_PATH: services/agent-integration}
+    restart: "no"
+    command: ["python", "-m", "goalpulse_runtime.d4", "migrate", "agent-integration"]
+    environment:
+      AGENT_INTEGRATION_DATABASE_URL: postgresql://agent_integration:${AGENT_INTEGRATION_DB_PASSWORD:?Set AGENT_INTEGRATION_DB_PASSWORD}@postgres:5432/agent_integration
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [data]
+  agent-integration:
+    build:
+      context: ..
+      dockerfile: infrastructure/images/python-service.Dockerfile
+      args: {SERVICE_PATH: services/agent-integration}
+    restart: unless-stopped
+    command: ["python", "-m", "goalpulse_runtime.d4", "agent-api"]
+    environment:
+      GOALPULSE_PROFILE: ${GOALPULSE_PROFILE:-dev}
+      AGENT_INTEGRATION_DATABASE_URL: postgresql://agent_integration:${AGENT_INTEGRATION_DB_PASSWORD:?Set AGENT_INTEGRATION_DB_PASSWORD}@postgres:5432/agent_integration
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/%2F
+      PLATFORM_SERVICE_ID: 00000000-0000-4000-8000-000000000006
+      <<: [*service-identity, *internal-origins]
+    depends_on:
+      agent-integration-migrate: {condition: service_completed_successfully}
+      rabbitmq-init: {condition: service_completed_successfully}
+      goal-evaluation: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    expose: ["8000"]
+    networks: [app, data]
+  agent-integration-worker:
+    extends: {service: agent-integration}
+    command: ["python", "-m", "goalpulse_runtime.d4", "agent-worker"]
+    depends_on:
+      agent-integration: {condition: service_healthy}
+    healthcheck: {disable: true}
+  gateway:
+    build:
+      context: gateway
+    restart: unless-stopped
+    environment:
+      GOALPULSE_PROFILE: ${GOALPULSE_PROFILE:-dev}
+      GATEWAY_DEMO_ALLOWED_ORIGIN: ${GATEWAY_DEMO_ALLOWED_ORIGIN:-http://localhost:3000}
+      GATEWAY_DEV_JWT_SECRET: ${GATEWAY_DEV_JWT_SECRET:?Set GATEWAY_DEV_JWT_SECRET}
+      GATEWAY_JWT_ISSUER: ${GATEWAY_JWT_ISSUER:?Set GATEWAY_JWT_ISSUER}
+      GATEWAY_JWT_AUDIENCE: ${GATEWAY_JWT_AUDIENCE:?Set GATEWAY_JWT_AUDIENCE}
+      SERVICE_JWT_SECRET: ${SERVICE_JWT_SECRET:?Set SERVICE_JWT_SECRET}
+      SERVICE_JWT_ISSUER: ${SERVICE_JWT_ISSUER:?Set SERVICE_JWT_ISSUER}
+      SERVICE_JWT_AUDIENCE: ${SERVICE_JWT_AUDIENCE:?Set SERVICE_JWT_AUDIENCE}
+      GOAL_INTELLIGENCE_URL: http://goal-intelligence:8000
+      GOAL_MANAGEMENT_URL: http://goal-management:8000
+      DISCOVERY_MONITORING_URL: http://discovery-monitoring:8000
+      DATA_EVIDENCE_URL: http://data-evidence:8000
+      GOAL_EVALUATION_URL: http://goal-evaluation:8000
+      NOTIFICATION_URL: http://notification:8000
+      AGENT_INTEGRATION_URL: http://agent-integration:8000
+      GATEWAY_DEMO_SESSION_SECRET: ${GATEWAY_DEMO_SESSION_SECRET:-}
+      GATEWAY_DEMO_SESSION_TTL_SECONDS: ${GATEWAY_DEMO_SESSION_TTL_SECONDS:-1800}
+      GATEWAY_DEMO_USER_A_ID: ${GATEWAY_DEMO_USER_A_ID:-}
+      GATEWAY_DEMO_USER_A_USERNAME: ${GATEWAY_DEMO_USER_A_USERNAME:-}
+      GATEWAY_DEMO_USER_A_PASSWORD_HASH: ${GATEWAY_DEMO_USER_A_PASSWORD_HASH:-}
+      GATEWAY_DEMO_USER_A_DISPLAY_NAME: ${GATEWAY_DEMO_USER_A_DISPLAY_NAME:-}
+      GATEWAY_DEMO_USER_B_ID: ${GATEWAY_DEMO_USER_B_ID:-}
+      GATEWAY_DEMO_USER_B_USERNAME: ${GATEWAY_DEMO_USER_B_USERNAME:-}
+      GATEWAY_DEMO_USER_B_PASSWORD_HASH: ${GATEWAY_DEMO_USER_B_PASSWORD_HASH:-}
+      GATEWAY_DEMO_USER_B_DISPLAY_NAME: ${GATEWAY_DEMO_USER_B_DISPLAY_NAME:-}
+      NEXT_PUBLIC_API_MODE: ${NEXT_PUBLIC_API_MODE:-}
+      GI_LLM_PROVIDER: ${GI_LLM_PROVIDER:-fixture}
+      GI_LLM_MODEL: ${GI_LLM_MODEL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CONTEXT_DEV_API_KEY: ${CONTEXT_DEV_API_KEY:-}
+      DE_EVIDENCE_PROVIDER: ${DE_EVIDENCE_PROVIDER:-}
+      DE_ALLOW_FIXTURE: ${DE_ALLOW_FIXTURE:-false}
+    depends_on:
+      goal-intelligence:
+        condition: service_healthy
+      goal-management:
+        condition: service_healthy
+      discovery-monitoring:
+        condition: service_healthy
+      data-evidence:
+        condition: service_healthy
+      goal-evaluation:
+        condition: service_healthy
+      notification:
+        condition: service_healthy
+      agent-integration:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2).read()
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [app]
 volumes:
   postgres_data:
   rabbitmq_data:
+networks:
+  app: {}
+  data: {}

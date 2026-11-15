@@ -53,9 +53,11 @@ class HS256TokenVerifier:
         self._token_kind = token_kind
 
     def verify(self, authorization: str | None, *, now: int | None = None) -> Principal:
-        if not authorization or not authorization.startswith("Bearer "):
+        if not authorization:
             raise AuthenticationError("missing bearer token")
-        token = authorization[7:]
+        scheme, separator, token = authorization.strip().partition(" ")
+        if not separator or scheme.lower() != "bearer" or not token:
+            raise AuthenticationError("missing bearer token")
         parts = token.split(".")
         if len(parts) != 3:
             raise AuthenticationError("malformed bearer token")

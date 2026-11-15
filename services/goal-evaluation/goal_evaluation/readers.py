@@ -1,7 +1,7 @@
 """Read-only ICP-01 clients; service-token issuance is supplied by D1's adapter.
 
 No redirects, ambient proxy credentials, or fixture fallback are permitted.
-The accepted API does not yet provide a complete goal-to-source lookup.
+ADR-0005's complete goal-to-source lookup is supplied by D1's platform binding.
 """
 
 import json
@@ -118,7 +118,7 @@ class GoalHttpReader:
 
 
 class SubscriptionHttpReader:
-    """Only the approved source→goals operation; no fabricated reverse route."""
+    """Accepted source→goals operation; ADR-0005 reverse lookup is D1-bound."""
 
     def __init__(self, client: InternalClient, max_entries: int = 1000):
         if type(max_entries) is not int or not 1 <= max_entries <= 10000:
