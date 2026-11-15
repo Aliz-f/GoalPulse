@@ -72,6 +72,11 @@ export function adviceFor(err: unknown, action: "send" | "confirm" | "load" | "c
     case "unauthorized":
       return { message: "You're not signed in, or your session expired. Sign in and try again.", keepInput: true, reload: false };
     case "forbidden":
+      return {
+        message: "GoalPulse refused this change because its page or session security check failed. Refresh and sign in again.",
+        keepInput: true,
+        reload: false,
+      };
     case "not_found":
       return {
         message: action === "lifecycle" || action === "load" ? "This doesn't exist or isn't yours." : "This goal draft doesn't exist or isn't yours.",

@@ -17,11 +17,29 @@ export interface HttpOptions {
    * them from calling the gateway until someone is signed in.
    */
   canSend?: () => boolean;
+  /** Test seam; production reads the intentionally non-HttpOnly CSRF cookie. */
+  csrfToken?: () => string | null;
 }
 
 export interface Http {
   /** Sends one request and returns the response for a 2xx; throws ApiError otherwise. */
   send(method: Method, path: string, body?: unknown): Promise<Response>;
+}
+
+const CSRF_COOKIE = "goalpulse_csrf";
+
+/** Read only the double-submit CSRF cookie, never the HttpOnly identity cookie. */
+export function csrfTokenFromCookies(cookies: string): string | null {
+  const prefix = `${CSRF_COOKIE}=`;
+  for (const part of cookies.split(";")) {
+    const cookie = part.trim();
+    if (cookie.startsWith(prefix)) return cookie.slice(prefix.length) || null;
+  }
+  return null;
+}
+
+function browserCsrfToken(): string | null {
+  return typeof document === "undefined" ? null : csrfTokenFromCookies(document.cookie);
 }
 
 /**
@@ -36,6 +54,7 @@ export function createHttp(opts: HttpOptions): Http {
   const base = normalizeBaseUrl(opts.baseUrl);
   const doFetch: FetchLike = opts.fetchImpl ?? ((input, init) => fetch(input, init));
   const correlationId = opts.newCorrelationId ?? (() => crypto.randomUUID());
+  const csrfToken = opts.csrfToken ?? browserCsrfToken;
 
   return {
     async send(method, path, body) {
@@ -45,6 +64,10 @@ export function createHttp(opts: HttpOptions): Http {
         "X-Correlation-ID": correlationId(),
       };
       if (body !== undefined) headers["Content-Type"] = "application/json";
+      if (method !== "GET") {
+        const csrf = csrfToken();
+        if (csrf) headers["X-CSRF-Token"] = csrf;
+      }
 
       let res: Response;
       try {

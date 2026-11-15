@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 
 import { adviceFor, ApiError } from "../src/lib/api/errors.ts";
 import { createGatewayApi, normalizeBaseUrl } from "../src/lib/api/gateway.ts";
+import { csrfTokenFromCookies } from "../src/lib/api/http.ts";
 import { createMockApi, pickScript } from "../src/lib/api/mock.ts";
 import { MOCK_SCRIPTS } from "../src/lib/api/mock-scripts.ts";
 
@@ -98,6 +99,7 @@ describe("gateway client (frozen public contract)", () => {
       baseUrl: "http://localhost:8000/",
       fetchImpl: fakeFetch(200, draft, calls),
       newCorrelationId: () => "corr-1",
+      csrfToken: () => "csrf-1",
     });
     await api.sendMessage("s 1", "yes", 2);
     await api.confirm("s1", 3);
@@ -113,8 +115,37 @@ describe("gateway client (frozen public contract)", () => {
       assert.equal(c.init.redirect, "error");
       const h = c.init.headers as Record<string, string>;
       assert.ok(!Object.keys(h).some((k) => /^(authorization|cookie)$/i.test(k)), "no auth header from the browser");
+      assert.equal(h["X-CSRF-Token"], "csrf-1");
       // never sends an owner id: ownership comes from the session
       assert.ok(!String(c.init.body).includes("owner_user_id"));
+    }
+  });
+
+  it("reads only the exact browser-readable CSRF cookie", () => {
+    assert.equal(csrfTokenFromCookies("other=1; goalpulse_csrf=csrf-2; theme=dark"), "csrf-2");
+    assert.equal(csrfTokenFromCookies("goalpulse_csrf_extra=wrong; goalpulse_session=secret"), null);
+    assert.equal(csrfTokenFromCookies("goalpulse_csrf="), null);
+  });
+
+  it("uses the browser CSRF cookie by default on a real mutation", async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const calls: Call[] = [];
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: { cookie: "goalpulse_session=unreadable-in-reality; goalpulse_csrf=browser-csrf" },
+    });
+    try {
+      const api = createGatewayApi({
+        baseUrl: "http://gw",
+        fetchImpl: fakeFetch(201, { session_id: "s1" }, calls),
+      });
+      await api.createSession("find a product");
+      const headers = calls[0].init.headers as Record<string, string>;
+      assert.equal(headers["X-CSRF-Token"], "browser-csrf");
+      assert.ok(!Object.keys(headers).some((name) => /^(authorization|cookie)$/i.test(name)));
+    } finally {
+      if (original) Object.defineProperty(globalThis, "document", original);
+      else Reflect.deleteProperty(globalThis, "document");
     }
   });
 
@@ -188,5 +219,8 @@ describe("error advice", () => {
     assert.equal(adviceFor(new ApiError(404, "not_found", "x"), "load").keepInput, false);
     assert.equal(adviceFor(new ApiError(409, "conflict", "x"), "confirm").reload, true);
     assert.equal(adviceFor(new Error("boom"), "send").reload, false);
+    const forbidden = adviceFor(new ApiError(403, "forbidden", "x"), "create");
+    assert.equal(forbidden.keepInput, true);
+    assert.match(forbidden.message, /security check failed/);
   });
 });

@@ -49,13 +49,13 @@ Three settings, all required (`.env.example`). There are **no defaults**: a miss
 ### Sign-in in gateway mode (ADR-0003 MVP-06)
 
 - The browser posts username + password once to `POST /v2/demo/sessions` (`contracts/openapi/gateway.phase2.extension.v1.yaml`). The gateway answers with the non-secret `DemoUser` and sets the **HttpOnly** `goalpulse_session` cookie. The password field is cleared after every attempt.
-- Every call uses `credentials: "include"`. The browser **never** holds, stores or sends a token, sends no `Authorization` header and never supplies an owner ID; nothing goes to `localStorage`/`sessionStorage`. On load (refresh or browser restart) the app asks `GET /v2/demo/session` who is signed in.
+- Every call uses `credentials: "include"`. For POST/PATCH, the client copies only the intentionally non-HttpOnly `goalpulse_csrf` cookie into `X-CSRF-Token`; it cannot read the HttpOnly identity cookie. The browser **never** holds, stores or sends an identity token, sends no `Authorization` header and never supplies an owner ID; nothing goes to `localStorage`/`sessionStorage`. On load (refresh or browser restart) the app asks `GET /v2/demo/session` who is signed in.
 - Pages are shown only to a signed-in user and remount when the account changes; cached drafts are dropped on sign-out or account switch. They are still rendered (hidden) before sign-in so Next 16 can prerender every segment for instant-navigation validation, and the API client sends nothing until the session is confirmed (`canSend` in `src/lib/api/http.ts`). Any `401` shows "Your session ended. Sign in again."
 - Sign-out posts `/v2/demo/sessions/logout`; if that fails the UI stays signed in rather than pretending.
 - Sign-in errors: 401 wrong credentials, 403 origin/CSRF refused, 429 too many attempts, 503 demo sign-in disabled, network.
 - The New goal form says that goal text is sent to Anthropic's Claude (MVP-05).
 
-**Needs from D1's gateway (R2-D1-01):** CORS for the frontend origin with `Access-Control-Allow-Credentials: true` (exact origin, not `*`) and `Accept, Content-Type, X-Correlation-ID` allowed; the page and the gateway on the same site (e.g. both `localhost`) so the `SameSite=Lax` cookie is sent. CSRF: the frontend relies on the browser's `Origin` header today. If D1 picks a CSRF token header, it is added in one place, `src/lib/api/http.ts`.
+**Needs from D1's gateway (R2-D1-01):** CORS for the frontend origin with `Access-Control-Allow-Credentials: true` (exact origin, not `*`) and `Accept, Content-Type, X-CSRF-Token, X-Correlation-ID` allowed; the page and the gateway on the same site (e.g. both `localhost`) so the `SameSite=Lax` cookies are sent. CSRF is enforced by both the exact `Origin` and the double-submit token added in one place, `src/lib/api/http.ts`.
 
 ### Checks for this
 
