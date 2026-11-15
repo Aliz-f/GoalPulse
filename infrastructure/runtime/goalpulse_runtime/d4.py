@@ -77,8 +77,46 @@ def _upstream_origins() -> tuple[str, str, str]:
     )
 
 
+def _goal_sources_reader(dm: str, issuer: ServiceTokenIssuer, *, get=json_get):
+    """Build ADR-0005's strict, bounded reverse subscription reader."""
+    from goal_evaluation.processing import RetryableUpstreamError, Subscription
+
+    def sources_for_goal(subscription: Subscription, correlation_id: str) -> list[str]:
+        path = (
+            f"/internal/v1/goals/{quote(subscription.goal_id)}/versions/"
+            f"{subscription.goal_version}/sources"
+        )
+        status, body = get(
+            dm.rstrip("/") + path,
+            issuer.mint("dm.sources.read"),
+            headers={"X-Correlation-ID": str(UUID(correlation_id))},
+        )
+        if status in {408, 429, 500, 502, 503, 504}:
+            raise RetryableUpstreamError("complete_source_binding_unavailable")
+        if status != 200 or not isinstance(body, dict) or set(body) != {
+            "goal_id", "goal_version", "source_ids"
+        }:
+            raise ValueError("complete source binding rejected")
+        if (body["goal_id"], body["goal_version"]) != (
+            subscription.goal_id,
+            subscription.goal_version,
+        ):
+            raise ValueError("complete source binding identity mismatch")
+        source_ids = body["source_ids"]
+        if not isinstance(source_ids, list) or len(source_ids) > 3:
+            raise ValueError("complete source binding exceeds bounds")
+        try:
+            normalized = [str(UUID(value)) for value in source_ids]
+        except (AttributeError, TypeError, ValueError):
+            raise ValueError("complete source binding contains invalid IDs") from None
+        if len(set(normalized)) != len(normalized) or normalized != sorted(normalized):
+            raise ValueError("complete source binding is not unique and ordered")
+        return normalized
+
+    return sources_for_goal
+
+
 def _ge_runtime():
-    from goal_evaluation.processing import Subscription
     from goal_evaluation.runtime import build_runtime
 
     _url, connect = _database("goal-evaluation")
@@ -88,40 +126,10 @@ def _ge_runtime():
     dm = required("DISCOVERY_MONITORING_BASE_URL")
     de = required("DATA_EVIDENCE_BASE_URL")
 
-    def sources_for_goal(subscription: Subscription, correlation_id: str) -> list[str]:
-        if os.environ.get("DM_GOAL_SOURCES_BINDING_APPROVED", "").lower() != "true":
-            raise RuntimeError("complete source binding is not approved")
-        path = (
-            f"/internal/v1/goals/{quote(subscription.goal_id)}/versions/"
-            f"{subscription.goal_version}/sources"
-        )
-        status, body = json_get(
-            dm.rstrip("/") + path,
-            issuer.mint("dm.sources.read"),
-            headers={"X-Correlation-ID": str(UUID(correlation_id))},
-        )
-        if status != 200 or not isinstance(body, dict) or set(body) != {
-            "goal_id", "goal_version", "source_ids"
-        }:
-            raise RuntimeError("complete source binding unavailable")
-        if (body["goal_id"], body["goal_version"]) != (
-            subscription.goal_id,
-            subscription.goal_version,
-        ):
-            raise ValueError("complete source binding identity mismatch")
-        source_ids = body["source_ids"]
-        if not isinstance(source_ids, list) or len(source_ids) > 1000:
-            raise ValueError("complete source binding exceeds bounds")
-        normalized = [str(UUID(value)) for value in source_ids]
-        if len(set(normalized)) != len(normalized):
-            raise ValueError("complete source binding contains duplicates")
-        return normalized
+    sources_for_goal = _goal_sources_reader(dm, issuer)
 
     def ready() -> bool:
-        return (
-            os.environ.get("DM_GOAL_SOURCES_BINDING_APPROVED", "").lower() == "true"
-            and dependencies_ready((gm, dm, de))
-        )
+        return dependencies_ready((gm, dm, de))
 
     return build_runtime(
         connect_database=connect,

@@ -3,7 +3,9 @@
 **Owner:** Developer 1. **Contract baseline:** frozen
 `contracts/openapi/gateway.v1.yaml`, accepted
 `contracts/openapi/gateway.phase2.extension.v1.yaml`, and ICP-08 in ADR-0002/0003.
-No contract file was changed by this task.
+Frozen public schemas, routes and events are unchanged. The coordinated D1/D3/D4
+completion adds only `contracts/openapi/internal.goal-sources.v1.yaml` under
+ADR-0005.
 
 ## Implemented Gateway contract
 
@@ -52,23 +54,24 @@ no credentialed CORS response. Login itself needs Origin but not a prior CSRF
 token. Invalid credentials are `401`, integrity failure `403`, throttle `429`,
 and disabled demo profile `503`.
 
-## Runtime state and remaining interface blocker
+## Runtime acceptance state
 
-| Acceptance item | State | Evidence / blocker |
+| Acceptance item | State | Evidence |
 |---|---|---|
 | Seven frozen routes with fake downstream | PASS | `infrastructure/gateway/tests/test_gateway.py` exercises all seven and status preservation. |
 | Two owners, unauthenticated denial, cross-owner masked as 404 | PASS | Gateway tests use independent cookie jars and downstream owner checks. |
 | Demo auth, CSRF, rate limit, no token response | PASS | Gateway unit/security tests. |
 | Demo rejects FE mock, GI fixture, DE fixture, and missing secrets | PASS | `GatewaySettings.from_env` fail-closed tests. |
-| Private ports, ordered migrations, seven APIs and workers | PASS configuration | Compose and platform-runner tests cover all declared processes; live start still requires the binding below and provisioned provider settings. |
-| One command reaches green readiness | BLOCKED | D4 correctly requires complete goal-version→sources lookup; D3 currently exposes only source→goals. `DM_GOAL_SOURCES_BINDING_APPROVED=false` holds GE and downstream readiness closed. |
+| Private ports, ordered migrations, seven APIs and workers | PASS | Compose tests and fresh live status show every declared process; service APIs expose container port 8000 only and Gateway is the sole host application port. |
+| One command reaches green readiness | PASS | Fresh project `goalpulse-r2-full-live2`: all seven APIs and all workers healthy, migrations/init exited zero, Gateway returned `{"status":"ready"}`. Only Gateway exposed an application port. |
 | Full demo-profile live provider smoke | NOT RUN | Requires provisioned Anthropic/Context.dev credentials and approved Context access-policy ID; no paid call is made by tests. |
 
-The remaining interface is proposed in
-`services/goal-evaluation/PHASE2_HANDOFF.md`. D1 and D3 must approve and publish
-the additive private contract, then D3 implements the complete bounded lookup.
-Until then infrastructure neither reads D3 SQL nor substitutes an incomplete
-source list.
+The former source-binding blocker is resolved by ADR-0005 and
+`contracts/openapi/internal.goal-sources.v1.yaml`. Discovery Monitoring returns
+the complete bounded active set for an exact known activation; Goal Evaluation
+validates identity, UUID ordering, uniqueness and the three-source limit.
+The live private-network smoke returned two sorted sources through GE's scoped
+reader and returned 403 without ServiceBearer authentication.
 
 ## Commands and redacted smoke evidence
 
@@ -79,9 +82,15 @@ docker compose -f infrastructure/docker-compose.yml --env-file .env up -d --buil
 docker compose -f infrastructure/docker-compose.yml --env-file .env ps
 ```
 
-An isolated project smoke used alternate loopback ports and fresh named volumes.
-PostgreSQL, RabbitMQ, and GI reported healthy; GI migration exited zero and
-`GET /health/live` returned `{"status":"live"}`. Gateway readiness correctly
-returns `503 {"status":"not_ready"}` while the R2-D1-02 Goal Management runtime
-is absent. The existing default PostgreSQL volume was not deleted or reset when
-its historical password differed from the current `.env`.
+The final isolated project smoke used alternate loopback ports and fresh named
+volumes. PostgreSQL, RabbitMQ, all seven APIs, all workers and Gateway were
+healthy; every one-shot migration/init container exited zero. Gateway readiness
+returned `{"status":"ready"}`. A first smoke exposed and then fixed a RabbitMQ
+queue-type mismatch: D1's definitions now use durable classic queues, matching
+the shipped consumer declarations while retaining persistent messages, confirms,
+manual acknowledgements and dedicated DLQs. No volume was deleted or reset.
+
+Final verification: contract validator PASS; targeted Gateway acceptance 9
+passed; platform/contracts 39 passed; Discovery 276 passed/7 opt-in skipped;
+Goal Management 36 passed/1 opt-in skipped plus its live PostgreSQL test passed;
+official Python 3.12 full suite 1414 passed/25 opt-in skipped.

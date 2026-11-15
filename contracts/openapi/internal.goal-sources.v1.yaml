@@ -1,0 +1,69 @@
+openapi: 3.1.0
+info:
+  title: GoalPulse — INTERNAL goal source lookup extension
+  version: 1.0.0
+  description: >-
+    Additive ADR-0005 contract. The accepted internal v1 API remains unchanged.
+    Goal Evaluation reads Discovery Monitoring's complete, bounded set of active
+    source links for one exact goal version.
+servers:
+  - url: http://internal-service.local
+security:
+  - ServiceBearer: []
+components:
+  securitySchemes:
+    ServiceBearer: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    GoalId:
+      name: goal_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Version:
+      name: version
+      in: path
+      required: true
+      schema: {type: integer, minimum: 1}
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: true
+      schema: {type: string, format: uuid}
+  schemas:
+    GoalSources:
+      type: object
+      additionalProperties: false
+      required: [goal_id, goal_version, source_ids]
+      properties:
+        goal_id: {type: string, format: uuid}
+        goal_version: {type: integer, minimum: 1}
+        source_ids:
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          items: {type: string, format: uuid}
+          description: Active links ordered lexicographically by UUID.
+paths:
+  /internal/v1/goals/{goal_id}/versions/{version}/sources:
+    get:
+      operationId: internalGetGoalVersionSources
+      tags: [discovery-monitoring]
+      description: >-
+        Complete active source set owned by Discovery Monitoring for an exact
+        activated goal version. A known version with no active links returns an
+        empty source_ids array; an unknown version returns 404. Results are never
+        truncated or paginated because the approved per-version maximum is three.
+      parameters:
+        - $ref: '#/components/parameters/GoalId'
+        - $ref: '#/components/parameters/Version'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Complete active source set
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/GoalSources'}
+        '400': {description: Missing or invalid correlation ID}
+        '403': {description: Service identity with dm.sources.read required}
+        '404': {description: Goal version was never activated in Discovery Monitoring}
+        '503': {description: Discovery Monitoring state unavailable or violates the bound}

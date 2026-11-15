@@ -15,6 +15,15 @@ def _authorize(value: str | None) -> None:
         raise HTTPException(403, "service identity required") from exc
 
 
+def _correlation(value: str | None) -> UUID:
+    try:
+        if value is None:
+            raise ValueError
+        return UUID(value)
+    except (TypeError, ValueError, AttributeError):
+        raise HTTPException(400, "X-Correlation-ID must be a UUID") from None
+
+
 def create_app(registry, *, readiness=None) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -60,6 +69,34 @@ def create_app(registry, *, readiness=None) -> FastAPI:
             "source_url": found.source_url,
             "canonical_url": found.canonical_url,
             "hostname": found.hostname,
+        }
+
+    @app.get("/internal/v1/goals/{goal_id}/versions/{version}/sources")
+    async def goal_sources(
+        goal_id: UUID,
+        version: int,
+        authorization: str | None = Header(default=None),
+        x_correlation_id: str | None = Header(default=None),
+    ):
+        _authorize(authorization)
+        _correlation(x_correlation_id)
+        if version < 1:
+            raise HTTPException(404, "goal version not found")
+        source_ids = registry.sources_for_goal(goal_id, version)
+        if source_ids is None:
+            raise HTTPException(404, "goal version not found")
+        if (
+            not isinstance(source_ids, list)
+            or len(source_ids) > 3
+            or not all(isinstance(source_id, UUID) for source_id in source_ids)
+            or len(set(source_ids)) != len(source_ids)
+            or source_ids != sorted(source_ids, key=str)
+        ):
+            raise RuntimeError("goal source state violates the approved contract")
+        return {
+            "goal_id": str(goal_id),
+            "goal_version": version,
+            "source_ids": [str(source_id) for source_id in source_ids],
         }
 
     return app

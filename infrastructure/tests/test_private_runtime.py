@@ -10,8 +10,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "infrastructure/runtime"))
+sys.path.insert(0, str(ROOT / "services/goal-evaluation"))
 
 from goalpulse_runtime.common import ConfigurationError, ServiceTokenIssuer, service_owner_subject
+from goalpulse_runtime.d4 import _goal_sources_reader
+from goal_evaluation.processing import RetryableUpstreamError, Subscription
 
 
 def environment() -> dict[str, str]:
@@ -45,8 +48,82 @@ def test_platform_identity_configuration_fails_closed(monkeypatch):
         ServiceTokenIssuer()
 
 
-def test_d4_runtime_keeps_reverse_source_binding_fail_closed():
+def test_d4_runtime_uses_the_approved_bounded_reverse_source_binding():
     source = (ROOT / "infrastructure/runtime/goalpulse_runtime/d4.py").read_text(encoding="utf-8")
-    assert 'DM_GOAL_SOURCES_BINDING_APPROVED' in source
     assert '/internal/v1/goals/{quote(subscription.goal_id)}/versions/' in source
-    assert 'raise RuntimeError("complete source binding is not approved")' in source
+    assert 'issuer.mint("dm.sources.read")' in source
+    assert 'len(source_ids) > 3' in source
+    assert 'normalized != sorted(normalized)' in source
+    assert 'DM_GOAL_SOURCES_BINDING_APPROVED' not in source
+
+
+def test_goal_sources_reader_propagates_identity_scope_and_correlation():
+    goal_id = str(uuid.uuid4())
+    correlation = str(uuid.uuid4())
+    sources = sorted([str(uuid.uuid4()), str(uuid.uuid4())])
+    calls = []
+
+    class Issuer:
+        def mint(self, scope):
+            assert scope == "dm.sources.read"
+            return "scoped-token"
+
+    def get(url, token, *, headers):
+        calls.append((url, token, headers))
+        return 200, {"goal_id": goal_id, "goal_version": 2, "source_ids": sources}
+
+    reader = _goal_sources_reader("http://discovery-monitoring:8000", Issuer(), get=get)
+    assert reader(Subscription(goal_id, 2), correlation) == sources
+    assert calls == [(
+        f"http://discovery-monitoring:8000/internal/v1/goals/{goal_id}/versions/2/sources",
+        "scoped-token",
+        {"X-Correlation-ID": correlation},
+    )]
+
+
+@pytest.mark.parametrize(
+    "status,body,error",
+    [
+        (503, None, RetryableUpstreamError),
+        (404, None, ValueError),
+        (200, {"goal_id": str(uuid.uuid4()), "goal_version": 1, "source_ids": []}, ValueError),
+        (200, None, ValueError),
+    ],
+)
+def test_goal_sources_reader_fails_closed(status, body, error):
+    goal_id, correlation = str(uuid.uuid4()), str(uuid.uuid4())
+
+    class Issuer:
+        def mint(self, _scope):
+            return "token"
+
+    reader = _goal_sources_reader(
+        "http://dm", Issuer(), get=lambda *_args, **_kwargs: (status, body)
+    )
+    with pytest.raises(error):
+        reader(Subscription(goal_id, 1), correlation)
+
+
+def test_goal_sources_reader_rejects_duplicates_unsorted_and_over_bound():
+    goal_id, correlation = str(uuid.uuid4()), str(uuid.uuid4())
+
+    class Issuer:
+        def mint(self, _scope):
+            return "token"
+
+    def reader_for(source_ids):
+        body = {"goal_id": goal_id, "goal_version": 1, "source_ids": source_ids}
+        return _goal_sources_reader(
+            "http://dm", Issuer(), get=lambda *_args, **_kwargs: (200, body)
+        )
+
+    source = str(uuid.uuid4())
+    with pytest.raises(ValueError, match="unique and ordered"):
+        reader_for([source, source])(Subscription(goal_id, 1), correlation)
+    descending = sorted([str(uuid.uuid4()), str(uuid.uuid4())], reverse=True)
+    with pytest.raises(ValueError, match="unique and ordered"):
+        reader_for(descending)(Subscription(goal_id, 1), correlation)
+    with pytest.raises(ValueError, match="bounds"):
+        reader_for([str(uuid.uuid4()) for _ in range(4)])(
+            Subscription(goal_id, 1), correlation
+        )

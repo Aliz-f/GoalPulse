@@ -21,12 +21,10 @@ published to the host. Each API has a dependency-aware readiness check; Gateway
 readiness is green only after every private API is green. Worker processes use
 the existing durable queues and do not publish alternate event names.
 
-The stack deliberately remains not-ready while
-`DM_GOAL_SOURCES_BINDING_APPROVED=false`. Goal Evaluation requires the complete
-goal-version-to-sources binding documented in the D4 handoff. Set this flag only
-after the D1/D3 additive private route is approved and deployed; the platform
-does not query Discovery's database or pretend the triggering source is complete.
-See `docs/phase2/R2-D1-01-GATEWAY-HANDOFF.md` for exact evidence.
+Goal Evaluation uses ADR-0005's authenticated, bounded goal-version-to-sources
+read from Discovery Monitoring. The platform does not query Discovery's database
+or pretend the triggering source is the complete set. Any unavailable, malformed,
+over-bound or identity-mismatched response fails closed.
 
 Use `.env.example` to create `.env` and replace every development password.
 On the first boot, the PostgreSQL init script creates one non-superuser role
@@ -37,9 +35,12 @@ must not be configured in any service.
 
 After RabbitMQ becomes healthy, the one-shot `rabbitmq-init` service imports
 `rabbitmq/definitions.json`. It creates the
-durable topic exchange `goalpulse.events`, a durable quorum queue for every
+durable topic exchange `goalpulse.events`, a durable classic queue for every
 declared consumer (five total because the verified-opportunity event fans out
 to Notification and Agent Integration), and a dedicated durable DLQ for each.
+Classic queue type matches the shipped consumer declarations; changing queue
+type requires a coordinated migration because RabbitMQ rejects inequivalent
+re-declarations.
 Applications must publish persistent messages (`delivery_mode=2`) with
 publisher confirms and consume with manual acknowledgement; this is an
 application-client setting, not a broker default.

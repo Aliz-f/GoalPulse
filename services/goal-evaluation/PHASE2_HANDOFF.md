@@ -107,7 +107,7 @@ Gateway/network integration. Blocking publisher confirms require a bounded
 deployment budget even if the broker remains connected; this is part of the
 unproven operational gate, not established by a mock ACK.
 
-## Interface change proposal: complete goal source lookup (D1 + D3 approval)
+## Accepted complete goal source lookup (ADR-0005)
 
 Current behavior: `EvidenceProcessor` needs
 `sources_for_goal(Subscription(goal_id, goal_version), correlation_id)` to load
@@ -118,7 +118,7 @@ The four events contain no complete source list. Reading DM's database or
 assuming the triggering source is the only source would violate ownership or
 silently evaluate an incomplete set.
 
-Proposed additive operation for D1/D3 review, **not implemented or authoritative**:
+Approved additive operation implemented by D3 and bound by D1:
 
 ```text
 GET /internal/v1/goals/{goal_id}/versions/{version}/sources  (DM private API)
@@ -126,12 +126,10 @@ ServiceBearer, existing dm.sources.read scope, X-Correlation-ID UUID
 200: {"goal_id": "<uuid>", "goal_version": 1, "source_ids": ["<uuid>"]}
 ```
 
-Require exact keys, positive integer version, unique UUID source IDs and explicit
-empty list for a known goal with no links; distinguish nonexistent version (404)
-from an empty set. Return the entire linked set or a defined bounded/paginated
-response; never truncate. D1/D3 must settle ordering, cardinality and failure
-semantics in the coordinated contract PR. Example IDs here are placeholders,
-not schema fixtures.
+The authoritative DTO and failure semantics are in
+`contracts/openapi/internal.goal-sources.v1.yaml`. Results contain at most three
+unique UUIDs in lexical order, distinguish a known empty activation from 404,
+and are never truncated.
 
 Affected services: DM producer, GE consumer; D1 coordinates the shared OpenAPI
 and ADR addition. Additive compatibility: all existing routes/events and frozen
@@ -146,8 +144,8 @@ changes; verify existing v1 fixtures still validate.
 
 ## Remaining acceptance gates
 
-- Bind the approved complete subscription reader and D1 token issuer. API/worker
-  composition is implemented, but no production reverse URL is guessed.
+- The approved complete subscription reader and D1 token issuer are bound by the
+  platform runtime under ADR-0005.
 - Run owned migrations and actual Rabbit/PostgreSQL tests; verify DLQ routing,
   restart/concurrency recovery, connection deadlines and deployment budgets.
 - Audit any previously populated Phase 1 fingerprint history before cutover;
@@ -191,7 +189,7 @@ The next P1 task stays gated on a stable real P0 path.
 | Missing complete source lookup prevents startup/readiness | PASS unit | Required callback, migration probes, closed broker channels |
 | PostgreSQL recorded-worker persistence/restart | NOT RUN | GOALPULSE_GE_TEST_DSN absent; Docker/psql unavailable |
 | Rabbit + DB confirmed outbox, manual ACK and replay | NOT RUN | Requires disposable DB plus GOALPULSE_GE_TEST_AMQP_URL |
-| Actual DM reverse lookup / deployed D3 checker binding / D1 private deployment | NOT RUN | Coordinated bindings and live operational evidence pending |
+| Actual DM reverse lookup / D1 private deployment | PASS | ADR-0005 route returned two sorted sources through GE's scoped reader; unauthenticated access returned 403; seven-service Gateway readiness was green. |
 
 Root commands were executed again. Default `python` still lacks PyYAML/pytest;
 using the existing venv and readline workaround above:

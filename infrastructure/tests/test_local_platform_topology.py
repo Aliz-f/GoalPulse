@@ -49,7 +49,10 @@ def test_rabbitmq_topology_matches_frozen_event_routing():
         for consumer in item["consumers"]:
             queue_name = f"goalpulse.{consumer}.{event_type}"
             assert queues[queue_name]["durable"] is True
-            assert queues[queue_name]["arguments"]["x-queue-type"] == "quorum"
+            # Shipped D4 consumers declare durable classic queues. Keep the
+            # imported topology equivalent so RabbitMQ does not close their
+            # channels with PRECONDITION_FAILED.
+            assert "x-queue-type" not in queues[queue_name]["arguments"]
             assert queues[queue_name]["arguments"]["x-dead-letter-exchange"] == "goalpulse.dlx"
             assert any(
                 binding["destination"] == queue_name and binding["routing_key"] == event_type
@@ -57,6 +60,7 @@ def test_rabbitmq_topology_matches_frozen_event_routing():
             )
             dlq_name = f"{queue_name}.dlq"
             assert queues[dlq_name]["durable"] is True
+            assert "x-queue-type" not in queues[dlq_name]["arguments"]
             assert queues[queue_name]["arguments"]["x-dead-letter-routing-key"] == dlq_name
 
 
