@@ -29,6 +29,14 @@ async function expectNoBrowserCredentials(page: Page) {
   expect(stored.cookie).not.toContain("goalpulse_session"); // HttpOnly: invisible to scripts
 }
 
+test("prepared demo credentials are visible and account A is prefilled", async ({ page }) => {
+  await page.goto("/goals");
+  await expect(page.getByLabel("Prepared demo accounts")).toContainText(`Username: ${A.user}`);
+  await expect(page.getByLabel("Prepared demo accounts")).toContainText(`Password: ${A.pass}`);
+  await expect(page.getByLabel("Username")).toHaveValue(A.user);
+  await expect(page.getByLabel("Password")).toHaveValue(A.pass);
+});
+
 test("wrong password is refused, explained and not kept", async ({ page }) => {
   await page.goto("/goals");
   await expect(page.getByRole("heading", { name: "Sign in to GoalPulse" })).toBeVisible();

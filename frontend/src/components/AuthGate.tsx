@@ -4,7 +4,7 @@ import { LogIn } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { Icon, Notice } from "@/components/Icons";
-import { sessionStore } from "@/lib/api";
+import { RUNTIME, sessionStore } from "@/lib/api";
 import { signInMessage } from "@/lib/api/demo-auth";
 import { CHECKING, type SessionState, type SessionStore } from "@/lib/session";
 
@@ -66,8 +66,9 @@ function GatewayGate({ store, children }: { store: SessionStore; children: React
 }
 
 function SignInForm({ store, expired }: { store: SessionStore; expired: boolean }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const firstCredential = RUNTIME.demoCredentials[0];
+  const [username, setUsername] = useState(firstCredential?.username ?? "");
+  const [password, setPassword] = useState(firstCredential?.password ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,7 +82,8 @@ function SignInForm({ store, expired }: { store: SessionStore; expired: boolean 
       setError(signInMessage(err));
       setBusy(false);
     } finally {
-      // The password is sent once and never kept, not even after a failed attempt.
+      // Clear the field after submission. The intentionally public credential
+      // remains available only in the prepared-account card above.
       setPassword("");
     }
   }
@@ -90,8 +92,30 @@ function SignInForm({ store, expired }: { store: SessionStore; expired: boolean 
     <>
       <h1>Sign in to GoalPulse</h1>
       <p className="lead">
-        This is a local demo with two prepared accounts. Each account sees only its own goals.
+        This controlled demo has prepared public accounts. Each account sees only its own goals.
       </p>
+      {RUNTIME.demoCredentials.length > 0 && (
+        <div className="demo-credentials" aria-label="Prepared demo accounts">
+          {RUNTIME.demoCredentials.map((credential) => (
+            <button
+              key={credential.username}
+              type="button"
+              className="demo-credential"
+              onClick={() => {
+                setUsername(credential.username);
+                setPassword(credential.password);
+                setError(null);
+              }}
+            >
+              <strong>{credential.label}</strong>
+              <span>Username: <code>{credential.username}</code></span>
+              <span>Password: <code>{credential.password}</code></span>
+              <small>Use this account</small>
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="hint">These credentials are public and are only for this isolated demo.</p>
       {expired && <Notice tone="warning">Your session ended. Sign in again to continue.</Notice>}
       <form
         className="card sign-in"

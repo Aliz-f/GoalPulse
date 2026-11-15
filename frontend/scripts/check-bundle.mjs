@@ -1,5 +1,6 @@
-// R2-D2-02: after `npm run build`, prove the browser bundle carries no credentials,
-// no private service settings and no leftover token store.
+// R2-D2-02: after `npm run build`, prove the browser bundle carries no private
+// credentials, private service settings or leftover token store. ADR-0007's
+// isolated-demo login pairs are intentionally public and are allowed here.
 // Usage: node scripts/check-bundle.mjs [distDir]   (default .next)
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";

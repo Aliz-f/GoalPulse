@@ -68,8 +68,15 @@ def test_compose_has_no_nginx_service_and_frontend_build_receives_no_secret():
         "NEXT_PUBLIC_GOALPULSE_PROFILE",
         "NEXT_PUBLIC_API_MODE",
         "NEXT_PUBLIC_GATEWAY_URL",
+        "NEXT_PUBLIC_DEMO_USER_A_USERNAME",
+        "NEXT_PUBLIC_DEMO_USER_A_PASSWORD",
+        "NEXT_PUBLIC_DEMO_USER_B_USERNAME",
+        "NEXT_PUBLIC_DEMO_USER_B_PASSWORD",
     }
-    assert not any("SECRET" in name or "KEY" in name or "PASSWORD" in name for name in frontend["build"]["args"])
+    assert not any("SECRET" in name or "KEY" in name for name in frontend["build"]["args"])
+    assert {
+        name for name in frontend["build"]["args"] if "PASSWORD" in name
+    } == {"NEXT_PUBLIC_DEMO_USER_A_PASSWORD", "NEXT_PUBLIC_DEMO_USER_B_PASSWORD"}
 
 
 def test_host_nginx_routes_public_api_and_frontend_to_loopback_only():

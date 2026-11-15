@@ -108,7 +108,7 @@ python3 infrastructure/release/manage_env.py
 
 At each prompt, enter a replacement, press Enter to retain the current value,
 enter `s` to skip it until a later run, or enter `-` to clear it. For generated
-secrets, demo UUIDs, and demo password hashes, enter `g`. Secret input and
+secrets and demo UUIDs, enter `g`. Secret input and
 existing secret values are hidden. A skipped or still-invalid setup is saved
 with mode `0600` and exits with status 2, so rerunning the command resumes the
 unfinished configuration. Use `--all` to review every variable, repeated
@@ -117,11 +117,13 @@ non-interactive, redacted readiness check. Add `--generate-random` to replace
 all invalid or placeholder database/broker/JWT/session secrets and demo UUIDs
 without displaying their values. Provider API keys, access-policy IDs, public
 origins, merchant hosts, and model IDs must come from the operator/provider and
-are never fabricated. Demo password hashes still use per-field `g` so the
-operator can enter and confirm each login password privately.
+are never fabricated. The two `DEMO_USER_*_PUBLIC_PASSWORD` values are
+intentionally visible on the isolated demo sign-in page. The manager derives
+the matching salted Gateway password hashes automatically.
 
-The three `NEXT_PUBLIC_*` build values are public by design. API keys, passwords,
-session secrets, and service JWT secrets are never passed to the frontend build.
+Frontend runtime selectors, the public origin, and the two isolated demo login
+pairs are public by design. API keys, private passwords, session secrets, and
+service JWT secrets are never passed to the frontend build.
 Changing database or RabbitMQ bootstrap credentials in `.env` does not rotate
 credentials already persisted in an existing volume; follow the VPS runbook.
 

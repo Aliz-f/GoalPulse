@@ -83,6 +83,23 @@ RETRY_NOTICE = (
     "The AI assistant is unavailable right now, so nothing in your goal was changed. "
     "Please send your message again."
 )
+SUMMARY_APPROVAL_MESSAGE = "Yes, set it up exactly like this without changes."
+_SUMMARY_APPROVAL_REPLIES = frozenset(
+    {
+        "approve",
+        "approved",
+        "confirm",
+        "deal",
+        "looks good",
+        "looks good to me",
+        "set it up",
+        "yes",
+        "yes please",
+        "yes set it up",
+        "yes, set it up exactly like this without changes",
+        "yes set it up exactly like this without changes",
+    }
+)
 EXPIRED_QUESTION = "This conversation expired. Please start a new goal."
 
 
@@ -132,6 +149,14 @@ class GoalIntelligenceService:
         """Returns (patch, notices). A failed model call yields an empty patch plus a
         retry notice: the frozen API has no 503, so the failure surfaces as a recoverable
         clarification and nothing the model said is applied."""
+        # Consent is authoritative user input, not a semantic fact for an LLM to
+        # interpret. Accept only a narrow, exact affirmative while the canonical
+        # summary is the current question. Replies containing edits still go through
+        # extraction, and Goal Management still requires the separate exact-revision
+        # confirmation before monitoring starts.
+        normalized = text.casefold().strip().rstrip(".!?").strip()
+        if state.asked_fields == ["summary_approval"] and normalized in _SUMMARY_APPROVAL_REPLIES:
+            return ExtractionPatch(approve_summary=True), []
         request = ExtractionRequest(
             message=text,
             goal_type=state.goal_type,

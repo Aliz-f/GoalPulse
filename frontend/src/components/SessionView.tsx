@@ -18,6 +18,7 @@ type Busy = null | "load" | "send" | "confirm";
 type NoticeState = { kind: "error" | "conflict"; text: string } | null;
 
 const MAX_CHARS = 2000;
+const SUMMARY_APPROVAL_MESSAGE = "Yes, set it up exactly like this without changes.";
 
 export function SessionView() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -79,8 +80,8 @@ export function SessionView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  async function send() {
-    const message = text.trim();
+  async function send(value: string = text) {
+    const message = value.trim();
     if (!draft || !message || busy) return;
     setBusy("send");
     setNotice(null);
@@ -135,6 +136,8 @@ export function SessionView() {
   const unsupported = isUnsupported(draft.missing_fields);
   const closed = draft.state === "confirmed" || draft.state === "abandoned";
   const ready = draft.ready_for_confirmation && draft.state === "ready_for_confirmation" && !unsupported;
+  const awaitingSummaryApproval =
+    !ready && draft.missing_fields.length === 1 && draft.missing_fields[0] === "summary_approval";
   const stillNeeded = draft.missing_fields.filter((f) => f !== "summary_approval");
   const shownTurns: Turn[] =
     turns.length === 0 && draft.next_question ? [{ role: "assistant", text: draft.next_question }] : turns;
@@ -186,6 +189,24 @@ export function SessionView() {
                 >
                   <Icon icon={ShieldCheck} />
                   {busy === "confirm" ? "Confirming…" : `Confirm revision ${draft.revision} and start monitoring`}
+                </button>
+              </div>
+            )}
+            {awaitingSummaryApproval && (
+              <div className="review" aria-label="Approve goal summary">
+                <h2>Approve this summary</h2>
+                <p>
+                  The summary contains the exact constraints and monitoring defaults GoalPulse will use. Approving it
+                  prepares a new immutable revision; monitoring still starts only after the separate confirmation step.
+                </p>
+                <button
+                  type="button"
+                  className="primary with-icon"
+                  onClick={() => void send(SUMMARY_APPROVAL_MESSAGE)}
+                  disabled={busy !== null}
+                >
+                  <Icon icon={ShieldCheck} />
+                  {busy === "send" ? "Approving…" : "Approve this summary"}
                 </button>
               </div>
             )}

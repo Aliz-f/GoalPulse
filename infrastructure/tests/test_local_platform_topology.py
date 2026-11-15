@@ -183,6 +183,10 @@ def test_demo_runtime_has_no_fixture_or_mock_fallback_in_compose():
     assert frontend_args["NEXT_PUBLIC_GOALPULSE_PROFILE"] == "${GOALPULSE_PROFILE:?Set GOALPULSE_PROFILE}"
     assert frontend_args["NEXT_PUBLIC_API_MODE"] == "${NEXT_PUBLIC_API_MODE:?Set NEXT_PUBLIC_API_MODE}"
     assert frontend_args["NEXT_PUBLIC_GATEWAY_URL"] == "${NEXT_PUBLIC_GATEWAY_URL:-}"
+    assert frontend_args["NEXT_PUBLIC_DEMO_USER_A_USERNAME"] == "${GATEWAY_DEMO_USER_A_USERNAME:-}"
+    assert frontend_args["NEXT_PUBLIC_DEMO_USER_A_PASSWORD"] == "${DEMO_USER_A_PUBLIC_PASSWORD:-}"
+    assert frontend_args["NEXT_PUBLIC_DEMO_USER_B_USERNAME"] == "${GATEWAY_DEMO_USER_B_USERNAME:-}"
+    assert frontend_args["NEXT_PUBLIC_DEMO_USER_B_PASSWORD"] == "${DEMO_USER_B_PUBLIC_PASSWORD:-}"
 
 
 def test_frontend_image_is_node_22_standalone_and_non_root():
