@@ -80,6 +80,37 @@ class SourceRegistry:
                 WHERE source_id=%s AND state='active' ORDER BY goal_id,goal_version""", (str(source_id),))
             return [(UUID(str(row[0])), row[1]) for row in cursor.fetchall()]
 
+    def sources_for_goal(self, goal_id: UUID, goal_version: int) -> list[UUID] | None:
+        """Return one snapshot of the complete active set for an exact activation.
+
+        ``None`` means DM never accepted that goal version.  An empty list means
+        the activation is known but currently has no active links.  The single
+        statement prevents a concurrent reconciliation from producing a mixed
+        known/link snapshot, and corrupted over-bound state fails closed.
+        """
+        if type(goal_version) is not int or goal_version < 1:
+            raise ValueError("Invalid goal version")
+        with self.database.transaction() as cursor:
+            cursor.execute("""WITH known AS (
+                    SELECT EXISTS(
+                        SELECT 1 FROM discovery_jobs
+                        WHERE goal_id=%s AND goal_version=%s
+                    ) AS present
+                ), active AS (
+                    SELECT source_id FROM goal_source_links
+                    WHERE goal_id=%s AND goal_version=%s AND state='active'
+                )
+                SELECT known.present,active.source_id FROM known
+                LEFT JOIN active ON true ORDER BY active.source_id""",
+                (str(goal_id), goal_version, str(goal_id), goal_version))
+            rows = cursor.fetchall()
+        if not rows or rows[0][0] is not True:
+            return None
+        sources = [UUID(str(row[1])) for row in rows if row[1] is not None]
+        if len(sources) > 3 or len(set(sources)) != len(sources):
+            raise RuntimeError("Goal source state violates the approved bound")
+        return sources
+
     def reconcile(self, goal_id: UUID, *, current_version: int, lifecycle: str) -> None:
         if lifecycle not in ("active", "paused", "cancelled", "completed") or current_version < 1:
             raise ValueError("Invalid runtime state")

@@ -107,8 +107,9 @@ No driver, HTTP server, credential storage backend or background process is
 installed/started automatically. `SecretStore` needs a real server-side secret
 manager before webhook-enabled monitor creation can be used operationally.
 
-`goalpulse_discovery.api.create_app` exposes only the accepted authenticated source
-metadata/subscription reads. It requires a signed service JWT with
+`goalpulse_discovery.api.create_app` exposes the accepted authenticated source
+metadata/subscription reads plus ADR-0005's additive complete goal-version source
+lookup. It requires a signed service JWT with
 `dm.sources.read`; token issuer, audience and secret use the D1-owned
 `SERVICE_JWT_*` settings. GoalReader and EvidenceSink remain injected ports for
 production client/startup wiring; they do not invent alternate wire shapes.

@@ -282,7 +282,6 @@ services:
       GOAL_EVALUATION_DATABASE_URL: postgresql://goal_evaluation:${GOAL_EVALUATION_DB_PASSWORD:?Set GOAL_EVALUATION_DB_PASSWORD}@postgres:5432/goal_evaluation
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/%2F
       PLATFORM_SERVICE_ID: 00000000-0000-4000-8000-000000000004
-      DM_GOAL_SOURCES_BINDING_APPROVED: ${DM_GOAL_SOURCES_BINDING_APPROVED:-false}
       <<: [*service-identity, *internal-origins]
     depends_on:
       goal-evaluation-migrate: {condition: service_completed_successfully}

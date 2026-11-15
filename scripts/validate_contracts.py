@@ -48,6 +48,11 @@ def validate_contracts() -> None:
         '/internal/v2/extractions/with-proof',
         '/internal/v2/evidence-checks/{observation_id}',
     }
+    source_spec = yaml.safe_load((ROOT/'contracts/openapi/internal.goal-sources.v1.yaml').read_text())
+    assert source_spec['openapi'].startswith('3.1.')
+    assert set(source_spec['paths']) == {
+        '/internal/v1/goals/{goal_id}/versions/{version}/sources',
+    }
     route = yaml.safe_load((ROOT/'contracts/event-routing.yaml').read_text())
     assert set(route['routing']) == set(definitions['domain-event.v1.schema.json']['properties']['event_type']['enum'])
     assert route['exchange_type'] == 'topic'
@@ -57,6 +62,7 @@ def validate_contracts() -> None:
     print(f'PASS event routing for {len(route["routing"])} event types')
     print(f'PASS OpenAPI YAML with {len(spec["paths"])} paths')
     print(f'PASS evidence-proof OpenAPI with {len(proof_spec["paths"])} paths')
+    print(f'PASS goal-sources OpenAPI with {len(source_spec["paths"])} path')
     print(f'PASS {len(definitions)} JSON Schemas + {len(list(EXAMPLES.glob("*.json")))} examples')
 
 if __name__ == '__main__':

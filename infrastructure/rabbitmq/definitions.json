@@ -5,16 +5,16 @@
     {"name": "goalpulse.dlx", "vhost": "/", "type": "topic", "durable": true, "auto_delete": false, "internal": false, "arguments": {}}
   ],
   "queues": [
-    {"name": "goalpulse.discovery-monitoring.goal.activated.v1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum", "x-dead-letter-exchange": "goalpulse.dlx", "x-dead-letter-routing-key": "goalpulse.discovery-monitoring.goal.activated.v1.dlq"}},
-    {"name": "goalpulse.goal-evaluation.evidence.updated.v1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum", "x-dead-letter-exchange": "goalpulse.dlx", "x-dead-letter-routing-key": "goalpulse.goal-evaluation.evidence.updated.v1.dlq"}},
-    {"name": "goalpulse.goal-management.goal.evaluated.v1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum", "x-dead-letter-exchange": "goalpulse.dlx", "x-dead-letter-routing-key": "goalpulse.goal-management.goal.evaluated.v1.dlq"}},
-    {"name": "goalpulse.notification.goal.opportunity_verified.v1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum", "x-dead-letter-exchange": "goalpulse.dlx", "x-dead-letter-routing-key": "goalpulse.notification.goal.opportunity_verified.v1.dlq"}},
-    {"name": "goalpulse.agent-integration.goal.opportunity_verified.v1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum", "x-dead-letter-exchange": "goalpulse.dlx", "x-dead-letter-routing-key": "goalpulse.agent-integration.goal.opportunity_verified.v1.dlq"}},
-    {"name": "goalpulse.discovery-monitoring.goal.activated.v1.dlq", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum"}},
-    {"name": "goalpulse.goal-evaluation.evidence.updated.v1.dlq", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum"}},
-    {"name": "goalpulse.goal-management.goal.evaluated.v1.dlq", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum"}},
-    {"name": "goalpulse.notification.goal.opportunity_verified.v1.dlq", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum"}},
-    {"name": "goalpulse.agent-integration.goal.opportunity_verified.v1.dlq", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum"}}
+    {"name": "goalpulse.discovery-monitoring.goal.activated.v1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-dead-letter-exchange": "goalpulse.dlx", "x-dead-letter-routing-key": "goalpulse.discovery-monitoring.goal.activated.v1.dlq"}},
+    {"name": "goalpulse.goal-evaluation.evidence.updated.v1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-dead-letter-exchange": "goalpulse.dlx", "x-dead-letter-routing-key": "goalpulse.goal-evaluation.evidence.updated.v1.dlq"}},
+    {"name": "goalpulse.goal-management.goal.evaluated.v1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-dead-letter-exchange": "goalpulse.dlx", "x-dead-letter-routing-key": "goalpulse.goal-management.goal.evaluated.v1.dlq"}},
+    {"name": "goalpulse.notification.goal.opportunity_verified.v1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-dead-letter-exchange": "goalpulse.dlx", "x-dead-letter-routing-key": "goalpulse.notification.goal.opportunity_verified.v1.dlq"}},
+    {"name": "goalpulse.agent-integration.goal.opportunity_verified.v1", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {"x-dead-letter-exchange": "goalpulse.dlx", "x-dead-letter-routing-key": "goalpulse.agent-integration.goal.opportunity_verified.v1.dlq"}},
+    {"name": "goalpulse.discovery-monitoring.goal.activated.v1.dlq", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {}},
+    {"name": "goalpulse.goal-evaluation.evidence.updated.v1.dlq", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {}},
+    {"name": "goalpulse.goal-management.goal.evaluated.v1.dlq", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {}},
+    {"name": "goalpulse.notification.goal.opportunity_verified.v1.dlq", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {}},
+    {"name": "goalpulse.agent-integration.goal.opportunity_verified.v1.dlq", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {}}
   ],
   "bindings": [
     {"source": "goalpulse.events", "vhost": "/", "destination": "goalpulse.discovery-monitoring.goal.activated.v1", "destination_type": "queue", "routing_key": "goal.activated.v1", "arguments": {}},
