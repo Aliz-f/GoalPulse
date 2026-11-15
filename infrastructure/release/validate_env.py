@@ -56,10 +56,30 @@ def parse_env(path: Path) -> tuple[dict[str, str], list[str]]:
             errors.append(f"{name} is defined more than once")
             continue
         value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        if len(value) >= 2 and value[0] == value[-1] == "'":
+            value = re.sub(r"\\(['\\])", r"\1", value[1:-1])
+        elif len(value) >= 2 and value[0] == value[-1] == '"':
             value = value[1:-1]
         values[name] = value
     return values, errors
+
+
+def compose_env_file_errors(path: Path) -> list[str]:
+    """Reject dollar values that Compose would treat as nested interpolation."""
+    errors: list[str] = []
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, raw_value = line.split("=", 1)
+        raw_value = raw_value.strip()
+        single_quoted = len(raw_value) >= 2 and raw_value[0] == raw_value[-1] == "'"
+        if "$" in raw_value and not single_quoted:
+            errors.append(
+                f"{name.strip()} contains an unquoted dollar sign on line {line_number}; "
+                "rerun manage_env.py to make it Compose-safe"
+            )
+    return errors
 
 
 def compose_variables(path: Path) -> set[str]:
@@ -206,6 +226,7 @@ def main() -> int:
         return 1
 
     values, errors = parse_env(args.env_file)
+    errors.extend(compose_env_file_errors(args.env_file))
     errors.extend(validate(values, args.compose_file))
     mode = stat.S_IMODE(args.env_file.stat().st_mode)
     if mode & (stat.S_IRWXG | stat.S_IRWXO):

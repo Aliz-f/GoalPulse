@@ -17,7 +17,14 @@ from typing import Callable
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
-from validate_env import DEFAULT_COMPOSE, DEFAULT_ENV, PLACEHOLDER_MARKERS, parse_env, validate
+from validate_env import (
+    DEFAULT_COMPOSE,
+    DEFAULT_ENV,
+    PLACEHOLDER_MARKERS,
+    compose_env_file_errors,
+    parse_env,
+    validate,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -369,13 +376,21 @@ def generate_random_values(
     return generated
 
 
+def encode_env_value(value: str) -> str:
+    """Quote dollar values so Compose does not recursively interpolate them."""
+    if "$" not in value:
+        return value
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+
 def render_template(lines: list[str], values: dict[str, str], known_names: set[str]) -> str:
     rendered: list[str] = []
     for line in lines:
         if "=" in line and not line.startswith("#"):
             name = line.split("=", 1)[0]
             if name in known_names:
-                rendered.append(f"{name}={values.get(name, '')}")
+                rendered.append(f"{name}={encode_env_value(values.get(name, ''))}")
                 continue
         rendered.append(line)
     extras = sorted(set(values) - known_names)
@@ -387,7 +402,7 @@ def render_template(lines: list[str], values: dict[str, str], known_names: set[s
             "# -----------------------------------------------------------------------------",
         ])
         for name in extras:
-            rendered.append(f"{name}={values[name]}")
+            rendered.append(f"{name}={encode_env_value(values[name])}")
     return "\n".join(rendered) + "\n"
 
 
@@ -458,6 +473,8 @@ def main() -> int:
     if args.check:
         _valid, invalid = _redacted_status(fields, values)
         full_errors = validate(values, args.compose_file)
+        if args.env_file.exists():
+            full_errors.extend(compose_env_file_errors(args.env_file))
         if args.env_file.exists() and stat.S_IMODE(args.env_file.stat().st_mode) & (stat.S_IRWXG | stat.S_IRWXO):
             full_errors.append("environment file permissions must be 0600")
         if full_errors:
@@ -508,6 +525,7 @@ def main() -> int:
         print("SKIPPED " + ", ".join(skipped))
     _valid, invalid = _redacted_status(fields, values)
     full_errors = validate(values, args.compose_file)
+    full_errors.extend(compose_env_file_errors(args.env_file))
     if invalid or full_errors:
         print("INCOMPLETE rerun the manager to finish skipped or invalid variables")
         return 2
